@@ -165,6 +165,10 @@ parse_document
 ## 文档
 
 - [需求文档](./docs/需求文档.md)
+- [架构设计](./docs/架构设计.md)
+- [数据库设计](./docs/数据库设计.md)
+- [接口说明](./docs/接口说明.md)
+- [测试计划](./docs/测试计划.md)
 
 <p align="right">(<a href="#readme-top">回到顶部</a>)</p>
 
