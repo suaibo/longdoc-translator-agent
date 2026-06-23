@@ -1,10 +1,18 @@
-from fastapi.testclient import TestClient
+﻿from fastapi.testclient import TestClient
 
 from app.main import app
 
 
 def test_health_smoke() -> None:
-    response = TestClient(app).get("/api/health")
+    with TestClient(app) as client:
+        response = client.get("/api/health")
 
     assert response.status_code == 200
-    assert response.json()["data"]["status"] == "UP"
+    assert response.json() == {
+        "code": 0,
+        "message": "ok",
+        "data": {
+            "status": "UP",
+            "service": "longdoc-translator-agent",
+        },
+    }
