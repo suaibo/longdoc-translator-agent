@@ -4,10 +4,14 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_STORAGE_ROOT = PROJECT_ROOT / "storage"
+DEFAULT_DATABASE_URL = f"sqlite:///{(DEFAULT_STORAGE_ROOT / 'app.db').as_posix()}"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=PROJECT_ROOT / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -15,8 +19,8 @@ class Settings(BaseSettings):
     app_env: str = "local"
     app_host: str = "127.0.0.1"
     app_port: int = 8000
-    database_url: str = "sqlite:///./storage/app.db"
-    storage_root: Path = Field(default=Path("./storage"))
+    database_url: str = DEFAULT_DATABASE_URL
+    storage_root: Path = Field(default=DEFAULT_STORAGE_ROOT)
     max_upload_bytes: int = 50 * 1024 * 1024
     upload_read_size: int = 1024 * 1024
 
