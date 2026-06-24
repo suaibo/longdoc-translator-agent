@@ -5,3 +5,5 @@ pydantic-settings==2.11.0
 SQLAlchemy==2.0.43
 pytest==8.4.2
 httpx==0.28.1
+docling==2.106.0
+onnxruntime==1.27.0

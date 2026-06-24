@@ -1,4 +1,4 @@
-﻿# LongDoc Translator Agent
+# LongDoc Translator Agent
 
 LongDoc Translator Agent is a local-first MVP for structured long-document translation. The first target workflow is paper translation:
 
@@ -58,6 +58,15 @@ LLM_MODEL=deepseek-v4-flash
 ```
 
 Secrets must stay in `.env`; do not commit API keys.
+
+Prepare Docling before the first PDF run:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+.\.venv\Scripts\docling-tools.exe models download layout tableformerv2
+```
+
+Docling stores models in the user cache. The first download requires access to Hugging Face; an unavailable model is reported as parser error `50002`. OCR defaults to `rapidocr-onnxruntime` to avoid backend selection changing when PyTorch is installed.
 
 ## Backend Smoke
 

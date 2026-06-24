@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_model: str = "deepseek-v4-flash"
 
-    ocr_engine: str = "docling-default"
+    ocr_engine: str = "rapidocr-onnxruntime"
     default_ocr_mode: str = "auto"
 
 
