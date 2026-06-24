@@ -21,6 +21,7 @@ from app.core.errors import (
     validation_error_handler,
 )
 from app.core.logging import configure_logging
+from app.core.telemetry import configure_telemetry
 from app.db.session import verify_database_connection
 from app.services.worker_service import get_worker
 from app.ui.gradio_app import create_gradio_app
@@ -29,6 +30,7 @@ from app.ui.gradio_app import create_gradio_app
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     configure_logging()
+    configure_telemetry()
     verify_database_connection()
     worker = get_worker() if get_settings().worker_enabled else None
     if worker:

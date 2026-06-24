@@ -33,6 +33,9 @@ class StoragePaths:
     def output_manifest(self, job_id: str) -> Path:
         return self.output_dir(job_id) / "manifest.json"
 
+    def replay_dataset(self, job_id: str) -> Path:
+        return self.output_dir(job_id) / "replay.jsonl"
+
     def output_file(self, job_id: str, output_type: str) -> Path:
         filenames = {
             "bilingual": "bilingual.md",

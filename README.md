@@ -40,6 +40,7 @@
 - HIGH 质量问题的有限次数自动修订循环。
 - 小说模式人物/地点/设定记忆与章节长期摘要。
 - 表格、公式、引用的嵌套 LangGraph 结构校验子图。
+- OpenTelemetry 节点/LLM span、脱敏 replay JSONL 和离线评测脚本。
 - Markdown、HTML、manifest、原始文件与 `result.zip`。
 
 上传任务会由后台 Worker 自动推进到术语确认；用户确认术语后，LangGraph 从原中断点继续翻译。未配置 `LLM_API_KEY` 时，任务会明确进入 `FAILED`，不会回退到 mock 翻译。
@@ -47,7 +48,7 @@
 仍在开发：
 
 - 非 LLM 长耗时节点的协作式超时。
-- OpenTelemetry/LangSmith、replay 数据集和多任务独立 Worker。
+- 多任务队列和独立 Worker。
 
 ## 技术栈
 
@@ -88,6 +89,8 @@ LLM_FALLBACK_BASE_URL=
 LLM_FALLBACK_API_KEY=
 LLM_FALLBACK_MODEL=
 MAX_REVISION_ATTEMPTS=1
+OTEL_EXPORTER_OTLP_ENDPOINT=
+REPLAY_INCLUDE_TEXT=False
 JOB_MAX_TOKEN_BUDGET=2000000
 JOB_MAX_COST_USD=0
 LLM_INPUT_COST_PER_MILLION=0
@@ -147,6 +150,12 @@ $env:PYTHONPATH=(Get-Location).Path
 ```
 
 脚本会启动端口 `5433` 的独立 PostgreSQL 测试库，执行 Alembic 后运行 pytest。测试数据通过事务回滚隔离，不写入开发库。
+
+离线评测：
+
+```powershell
+.\.venv\Scripts\python.exe backend\scripts\evaluate_replay.py storage\outputs\{jobId}\replay.jsonl
+```
 
 ## 项目目录
 

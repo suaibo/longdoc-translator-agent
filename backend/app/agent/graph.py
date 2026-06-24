@@ -9,6 +9,7 @@ from langgraph.graph import END, START, StateGraph
 from app.agent.nodes import WorkflowNodes
 from app.agent.state import TranslationState
 from app.db.session import SessionLocal
+from app.core.telemetry import span
 from app.services.event_service import EventService
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,12 @@ def _instrument_node(
         started = perf_counter()
         _record_event(job_id, node_name, "STARTED")
         try:
-            result = node(state)
+            with span(
+                f"workflow.{node_name}",
+                job_id=job_id,
+                workflow_node=node_name,
+            ):
+                result = node(state)
         except GraphInterrupt:
             _record_event(
                 job_id,

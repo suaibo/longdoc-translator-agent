@@ -59,7 +59,12 @@ def test_outputs_include_safe_html_manifest_source_and_package(
     assert "<script>" not in html_text
     assert "&lt;script&gt;" in html_text
     assert manifest.is_file()
+    replay = paths.replay_dataset("job_output").read_text(encoding="utf-8")
+    assert '"recordType": "chunk"' in replay
+    assert "sourceText" not in replay
+    assert '<script>alert("x")</script>' not in replay
     with zipfile.ZipFile(package) as archive:
         names = archive.namelist()
         assert "source/paper.md" in names
+        assert "replay.jsonl" in names
         assert not any(".." in Path(name).parts for name in names)

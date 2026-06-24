@@ -25,6 +25,7 @@ from app.agent.prompts import (
 )
 from app.core.config import get_settings
 from app.core.errors import AppError, ErrorCode
+from app.core.telemetry import span
 from app.schemas.llm import (
     LLMResult,
     LLMUsage,
@@ -248,14 +249,23 @@ class LLMService:
             model = self._model_for(task, endpoint)
             for attempt in range(self.settings.llm_max_retries + 1):
                 try:
-                    response = endpoint.client.chat.completions.create(
-                        model=model,
-                        messages=messages,
-                        max_tokens=self.settings.llm_max_output_tokens,
-                        response_format=(
-                            {"type": "json_object"} if json_output else None
-                        ),
-                    )
+                    with span(
+                        "llm.chat",
+                        llm_provider=endpoint.provider,
+                        llm_model=model,
+                        llm_task=task,
+                        llm_attempt=attempt,
+                    ):
+                        response = endpoint.client.chat.completions.create(
+                            model=model,
+                            messages=messages,
+                            max_tokens=self.settings.llm_max_output_tokens,
+                            response_format=(
+                                {"type": "json_object"}
+                                if json_output
+                                else None
+                            ),
+                        )
                     content = response.choices[0].message.content or ""
                     if not content.strip():
                         raise ValueError("LLM returned empty content")

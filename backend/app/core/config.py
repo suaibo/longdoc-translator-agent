@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     llm_fallback_api_key: str = ""
     llm_fallback_model: str = ""
     max_revision_attempts: int = 1
+    otel_service_name: str = "longdoc-translator-agent"
+    otel_exporter_otlp_endpoint: str = ""
+    replay_include_text: bool = False
     workflow_version: str = "1"
     prompt_version: str = "1"
 

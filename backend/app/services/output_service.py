@@ -17,6 +17,7 @@ from app.models.translation_job import TranslationJob
 from app.models.translation_metric import TranslationMetric
 from app.models.enums import JobStatus
 from app.services.render_service import RenderService
+from app.services.replay_service import ReplayService
 from app.storage.paths import StoragePaths
 
 OUTPUT_TYPES = {
@@ -129,6 +130,9 @@ class OutputService:
     def generate_manifest_and_package(self, job_id: str) -> tuple[Path, Path]:
         job = self._job(job_id)
         output_dir = self.paths.output_dir(job_id)
+        ReplayService(self.db).export(
+            job_id, self.paths.replay_dataset(job_id)
+        )
         files: list[dict[str, Any]] = []
         for output_type, (filename, media_type) in OUTPUT_TYPES.items():
             if output_type == "package":
@@ -160,6 +164,15 @@ class OutputService:
                         }
                     )
         source_path = Path(job.original_file_path)
+        replay_path = self.paths.replay_dataset(job_id)
+        files.append(
+            {
+                "type": "replay",
+                "path": replay_path.name,
+                "mediaType": "application/x-ndjson",
+                "sha256": self._sha256(replay_path),
+            }
+        )
         manifest = {
             "version": "1",
             "generatedAt": datetime.now(timezone.utc).isoformat(),
