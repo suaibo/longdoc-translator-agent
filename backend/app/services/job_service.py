@@ -5,7 +5,6 @@ from uuid import uuid4
 
 from fastapi import UploadFile
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -115,12 +114,6 @@ class JobService:
         self.db.refresh(job)
         return job
 
-    def _has_active_job(self) -> bool:
-        statement = select(TranslationJob.job_id).where(
-            TranslationJob.status.in_(ACTIVE_STATUSES)
-        )
-        return self.db.scalar(statement.limit(1)) is not None
-
     def _validate_request(
         self, filename: str | None, mode: str, ocr_mode: str
     ) -> tuple[str, str]:
@@ -140,8 +133,6 @@ class JobService:
                 "ocrMode 必须是 auto、off 或 force",
                 status_code=422,
             )
-        if self._has_active_job():
-            raise AppError(ErrorCode.SINGLE_JOB_BUSY, status_code=409)
         return original_filename, extension
 
     def _allocate_upload(self, extension: str) -> tuple[str, Path, Path]:
@@ -183,11 +174,7 @@ class JobService:
             updated_at=now,
         )
         self.db.add(job)
-        try:
-            self.db.commit()
-        except IntegrityError as exc:
-            self.db.rollback()
-            raise AppError(ErrorCode.SINGLE_JOB_BUSY, status_code=409) from exc
+        self.db.commit()
         self.db.refresh(job)
         return job
 

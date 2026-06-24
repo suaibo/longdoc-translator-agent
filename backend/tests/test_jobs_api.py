@@ -56,13 +56,12 @@ def test_create_rejects_file_over_limit(
     assert not uploads.exists() or not any(uploads.iterdir())
 
 
-def test_single_active_job_returns_busy(client: TestClient) -> None:
+def test_multiple_jobs_can_be_queued(client: TestClient) -> None:
     first = client.post("/api/jobs", files={"file": ("first.md", b"# First")})
     second = client.post("/api/jobs", files={"file": ("second.md", b"# Second")})
 
     assert first.status_code == 200
-    assert second.status_code == 409
-    assert second.json()["code"] == 40902
+    assert second.status_code == 200
 
 
 def test_missing_job_returns_not_found(client: TestClient) -> None:

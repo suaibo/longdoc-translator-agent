@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Index, text
+from sqlalchemy import DateTime, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -11,15 +11,6 @@ class TranslationJob(Base):
     __table_args__ = (
         Index("idx_translation_job_status", "status"),
         Index("idx_translation_job_created_at", "created_at"),
-        Index(
-            "uq_translation_job_one_active",
-            text("(1)"),
-            unique=True,
-            postgresql_where=text(
-                "status IN ('UPLOADED', 'PARSED', 'WAITING_TERM_REVIEW', "
-                "'WAITING_RISK_REVIEW', 'WAITING_CHAPTER_REVIEW', 'TRANSLATING')"
-            ),
-        ),
     )
 
     job_id: Mapped[str] = mapped_column(primary_key=True)
@@ -71,4 +62,10 @@ class TranslationJob(Base):
     )
     chapter_memories = relationship(
         "ChapterMemory", back_populates="job", cascade="all, delete-orphan"
+    )
+    queue_item = relationship(
+        "JobQueue",
+        back_populates="job",
+        cascade="all, delete-orphan",
+        uselist=False,
     )

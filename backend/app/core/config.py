@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     app_env: str = "local"
     app_host: str = "127.0.0.1"
     app_port: int = 8000
-    worker_enabled: bool = True
+    worker_enabled: bool = False
     database_url: str = DEFAULT_DATABASE_URL
     database_connect_timeout: int = 5
     storage_root: Path = Field(default=DEFAULT_STORAGE_ROOT)
@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     replay_include_text: bool = False
     workflow_version: str = "1"
     prompt_version: str = "1"
+    workflow_node_timeout_seconds: float = 1800
 
     ocr_engine: str = "rapidocr-onnxruntime"
     default_ocr_mode: str = "auto"

@@ -8,6 +8,8 @@ from langgraph.graph import END, START, StateGraph
 
 from app.agent.nodes import WorkflowNodes
 from app.agent.state import TranslationState
+from app.core.config import get_settings
+from app.core.errors import AppError, ErrorCode
 from app.db.session import SessionLocal
 from app.core.telemetry import span
 from app.services.event_service import EventService
@@ -32,6 +34,14 @@ def _instrument_node(
                 workflow_node=node_name,
             ):
                 result = node(state)
+            elapsed_ms = _elapsed_ms(started)
+            timeout = get_settings().workflow_node_timeout_seconds
+            if timeout > 0 and elapsed_ms > timeout * 1000:
+                raise AppError(
+                    ErrorCode.INTERNAL_ERROR,
+                    f"节点 {node_name} 超过时间预算 {timeout:g} 秒",
+                    status_code=504,
+                )
         except GraphInterrupt:
             _record_event(
                 job_id,
@@ -54,7 +64,7 @@ def _instrument_node(
             job_id,
             node_name,
             "COMPLETED",
-            elapsed_ms=_elapsed_ms(started),
+            elapsed_ms=elapsed_ms,
         )
         return result
 

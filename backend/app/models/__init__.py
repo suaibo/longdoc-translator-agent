@@ -4,6 +4,7 @@ from app.models.risk_item import RiskItem
 from app.models.review_request import ReviewRequest
 from app.models.story_memory import StoryMemory
 from app.models.chapter_memory import ChapterMemory
+from app.models.job_queue import JobQueue
 from app.models.term_entry import TermEntry
 from app.models.translation_job import TranslationJob
 from app.models.translation_metric import TranslationMetric
@@ -17,6 +18,7 @@ __all__ = [
     "ReviewRequest",
     "StoryMemory",
     "ChapterMemory",
+    "JobQueue",
     "TermEntry",
     "TranslationJob",
     "TranslationMetric",

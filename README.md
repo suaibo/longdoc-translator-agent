@@ -19,7 +19,7 @@
 - FastAPI REST API 与 Gradio 工作台，同一进程运行。
 - PostgreSQL 16、SQLAlchemy 2.0、Psycopg 3 和 Alembic。
 - Docker Compose 开发库与独立测试库。
-- PDF、Markdown、TXT 上传，任务列表、详情、取消和单活动任务约束。
+- PDF、Markdown、TXT 上传，任务列表、详情、取消和多任务排队。
 - Docling PDF 解析适配，Markdown/TXT 统一转换为 `ParsedBlock[]`。
 - 双栏阅读顺序修正、重复页眉页脚过滤。
 - 章节、段落、表格、公式和代码的结构感知切块。
@@ -31,7 +31,7 @@
 - target/soft/hard token 预算、本地语义边界和可解释 chunk 字段。
 - DeepSeek 术语抽取、术语人工确认和真实翻译。
 - LangGraph `StateGraph`、PostgreSQL checkpointer、人工中断和恢复。
-- 单任务后台 Worker、进程启动恢复、chunk 边界取消。
+- PostgreSQL 租约队列、独立 Worker、进程恢复和 chunk 边界取消。
 - 滑动窗口摘要、分类重试、调用指标和翻译质量检查。
 - 工作流节点事件时间线、失败节点展示和节点耗时记录。
 - 任务级真实 token 用量与可配置费用预算限制。
@@ -41,14 +41,14 @@
 - 小说模式人物/地点/设定记忆与章节长期摘要。
 - 表格、公式、引用的嵌套 LangGraph 结构校验子图。
 - OpenTelemetry 节点/LLM span、脱敏 replay JSONL 和离线评测脚本。
+- 多任务租约队列与可独立启动的 Worker 进程。
 - Markdown、HTML、manifest、原始文件与 `result.zip`。
 
 上传任务会由后台 Worker 自动推进到术语确认；用户确认术语后，LangGraph 从原中断点继续翻译。未配置 `LLM_API_KEY` 时，任务会明确进入 `FAILED`，不会回退到 mock 翻译。
 
 仍在开发：
 
-- 非 LLM 长耗时节点的协作式超时。
-- 多任务队列和独立 Worker。
+- 当前规划项均已实现，后续重点转为性能压测与部署加固。
 
 ## 技术栈
 
@@ -104,6 +104,14 @@ API Key 只能保存在本地 `.env`，不要提交到 Git。
 
 ```powershell
 .\scripts\start.ps1
+```
+
+脚本会在后台启动独立 Worker，并在前台启动 FastAPI/Gradio。也可单独运行：
+
+```powershell
+cd backend
+$env:PYTHONPATH=(Get-Location).Path
+..\.venv\Scripts\python.exe -m app.worker
 ```
 
 也可以逐步运行：

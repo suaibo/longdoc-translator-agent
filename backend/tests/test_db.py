@@ -37,6 +37,7 @@ def test_alembic_creates_core_tables(db_session: Session) -> None:
         "review_request",
         "story_memory",
         "chapter_memory",
+        "job_queue",
         "alembic_version",
         "checkpoints",
         "checkpoint_blobs",
@@ -74,13 +75,14 @@ def test_document_chunk_unique_job_index_constraint(db_session: Session) -> None
         db_session.commit()
 
 
-def test_only_one_active_job_is_allowed(db_session: Session) -> None:
+def test_multiple_active_jobs_are_allowed(db_session: Session) -> None:
     db_session.add(make_job("job_active_1"))
     db_session.commit()
     db_session.add(make_job("job_active_2"))
+    db_session.commit()
 
-    with pytest.raises(IntegrityError):
-        db_session.commit()
+    assert db_session.get(TranslationJob, "job_active_1") is not None
+    assert db_session.get(TranslationJob, "job_active_2") is not None
 
 
 def test_jsonb_boolean_and_timezone_types(db_session: Session) -> None:

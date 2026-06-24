@@ -121,12 +121,12 @@ MVP 必做：
 - 基础导出：`bilingual.md`、`translated.md`、`report.md`
 - 输出增强：`bilingual.html`、`translated.html`、原始文件和 `result.zip`
 - Web 控制台完整演示上传、术语确认、进度和下载
+- PostgreSQL 多任务租约队列与独立 Worker 进程
 
 MVP 暂不做：
 
 - 登录 / 注册 / 权限
 - 多用户隔离
-- 多任务并发队列
 - WebSocket / SSE 实时推送
 - DOCX 导出
 - 翻译 PDF 导出（原始 PDF 保留与下载属于 MVP 输出增强）
@@ -582,14 +582,13 @@ LLM_MODEL=
 
 - 登录权限
 - 多用户系统
-- 多任务并发
 - 云部署架构
 - 复杂 UI 设计系统
 - 向量数据库
 - RAG 问答
 - 翻译记忆库
 - 商业级 OCR 调参
-- 完整小说模式
+- 复杂小说关系图谱和风格审校
 
 先让 MVP 跑起来，再逐步增强深度。
 
