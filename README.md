@@ -44,6 +44,7 @@
 ## 当前实现边界
 
 - Chunk Service 已作为独立领域服务实现，尚未接入 LangGraph Worker，因此上传任务不会自动推进到切块阶段。
+- `ParserService` 已支持 `ocrMode=auto / off / force`，但创建任务接口和后台 Worker 尚未把该参数传入解析流程；前端接入前需要补齐这段链路。
 - `CHUNK_MAX_TOKENS` 使用本地启发式 token 估算，不等同于 DeepSeek 服务端 tokenizer；接入真实 LLM 后需要用调用指标校准阈值。
 - `TABLE_MAX_ROWS` 控制大表的最大行组；只有超过行数或 token 阈值的表格才会拆分。
 - PDF caption 优先通过 Docling 引用关联，Markdown/TXT 使用相邻 caption 作为 fallback。引用缺失或复杂跨页表格仍保留原结果并进入风险检查。
@@ -205,6 +206,7 @@ longdoc-translator-agent/
 - [数据库设计](docs/数据库设计.md)
 - [接口说明](docs/接口说明.md)
 - [测试计划](docs/测试计划.md)
+- [前端 UI 与交互规范](docs/前端UI设计.md)
 
 ## License
 

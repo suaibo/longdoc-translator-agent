@@ -15,11 +15,12 @@
 - `docs/数据库设计.md`
 - `docs/接口说明.md`
 - `docs/测试计划.md`
+- `docs/前端UI设计.md`
 
 如果文档之间冲突，优先级如下：
 
 ```text
-用户最新明确指令 > docs/需求文档.md > docs/架构设计.md > docs/接口说明.md > docs/数据库设计.md > docs/测试计划.md > README.md
+用户最新明确指令 > docs/需求文档.md > docs/架构设计.md > docs/接口说明.md > docs/前端UI设计.md > docs/数据库设计.md > docs/测试计划.md > README.md
 ```
 
 原则：如果修改了架构、接口、数据表或 MVP 范围，需要同步更新对应文档，不要只改代码。
