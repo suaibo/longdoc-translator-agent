@@ -11,6 +11,7 @@ from app.models.translation_job import TranslationJob
 from app.schemas.term import TermConfirmation
 from app.services.llm_service import LLMService
 from app.services.metric_service import MetricService
+from app.services.budget_service import BudgetService
 
 
 class TermService:
@@ -30,6 +31,7 @@ class TermService:
         merged: dict[str, tuple[str, str, str | None]] = {}
         content = "\n\n".join(texts)
         for start in range(0, len(content), self.BATCH_CHARS):
+            BudgetService(self.db).assert_available(job_id)
             suggestions, result = llm.extract_terms(
                 content[start : start + self.BATCH_CHARS]
             )

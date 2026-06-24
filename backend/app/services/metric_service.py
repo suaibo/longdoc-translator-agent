@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.translation_metric import TranslationMetric
 from app.schemas.llm import LLMResult
 
@@ -21,6 +22,15 @@ class MetricService:
         model: str | None = None,
         failed_count: int = 0,
     ) -> TranslationMetric:
+        settings = get_settings()
+        estimated_cost = (
+            result.usage.prompt_tokens
+            * settings.llm_input_cost_per_million
+            / 1_000_000
+            + result.usage.completion_tokens
+            * settings.llm_output_cost_per_million
+            / 1_000_000
+        )
         metric = TranslationMetric(
             metric_id=f"metric_{uuid4().hex}",
             job_id=job_id,
@@ -33,6 +43,7 @@ class MetricService:
             elapsed_ms=result.elapsed_ms,
             retry_count=result.retry_count,
             failed_count=failed_count,
+            estimated_cost_usd=estimated_cost,
             created_at=datetime.now(timezone.utc),
         )
         self.db.add(metric)

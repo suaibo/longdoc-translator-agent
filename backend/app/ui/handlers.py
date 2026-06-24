@@ -13,6 +13,7 @@ from app.models.document_chunk import DocumentChunk
 from app.models.risk_item import RiskItem
 from app.models.term_entry import TermEntry
 from app.schemas.term import TermConfirmation
+from app.services.event_service import EventService
 from app.services.job_service import JobService
 from app.services.term_service import TermService
 from app.services.worker_service import get_worker
@@ -123,6 +124,7 @@ def refresh_dashboard(
     list[list[Any]],
     list[list[Any]],
     list[list[Any]],
+    list[list[Any]],
     Any,
     Any,
     Any,
@@ -132,7 +134,20 @@ def refresh_dashboard(
     Any,
 ]:
     if not job_id:
-        return "请选择任务。", [], [], [], None, None, None, None, None, None, None
+        return (
+            "请选择任务。",
+            [],
+            [],
+            [],
+            [],
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
 
     try:
         with session_scope() as db:
@@ -159,6 +174,7 @@ def refresh_dashboard(
                     .order_by(RiskItem.created_at)
                 )
             )
+            events = EventService(db).list_events(job_id)
             outputs = get_storage_paths()
             return (
                 _job_markdown(job),
@@ -193,6 +209,16 @@ def refresh_dashboard(
                     ]
                     for risk in risks
                 ],
+                [
+                    [
+                        event.created_at.isoformat(),
+                        event.node,
+                        event.status,
+                        event.elapsed_ms,
+                        event.message or "",
+                    ]
+                    for event in events
+                ],
                 _existing_output(outputs.output_file(job_id, "bilingual")),
                 _existing_output(outputs.output_file(job_id, "translated")),
                 _existing_output(outputs.output_file(job_id, "report")),
@@ -202,10 +228,24 @@ def refresh_dashboard(
                 _existing_output(Path(job.original_file_path)),
             )
     except AppError as exc:
-        return exc.message, [], [], [], None, None, None, None, None, None, None
+        return (
+            exc.message,
+            [],
+            [],
+            [],
+            [],
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
     except Exception as exc:
         return (
             f"刷新失败：{exc}",
+            [],
             [],
             [],
             [],

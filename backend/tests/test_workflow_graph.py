@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from app.agent.runner import WorkflowRunner
 from app.core.config import get_settings
 from app.models.translation_job import TranslationJob
+from app.services.event_service import EventService
 from app.schemas.term import TermConfirmation
 from app.services.job_service import JobService
 from app.services.term_service import TermService
@@ -30,10 +31,12 @@ def test_langgraph_interrupt_resume_completes_full_workflow(
     get_settings.cache_clear()
 
     import app.agent.nodes as node_module
+    import app.agent.graph as graph_module
     import app.services.term_service as term_module
     import app.services.translation_service as translation_module
 
     monkeypatch.setattr(node_module, "SessionLocal", factory)
+    monkeypatch.setattr(graph_module, "SessionLocal", factory)
     monkeypatch.setattr(term_module, "LLMService", FakeLLM)
     monkeypatch.setattr(translation_module, "LLMService", FakeLLM)
     try:
@@ -74,6 +77,16 @@ def test_langgraph_interrupt_resume_completes_full_workflow(
             assert completed.progress_percent == 100
             assert paths.document_ir(job_id).is_file()
             assert paths.output_file(job_id, "package").is_file()
+            events = EventService(db).list_events(job_id)
+            assert any(
+                event.node == "interrupt_for_term_review"
+                and event.status == "INTERRUPTED"
+                for event in events
+            )
+            assert any(
+                event.node == "generate_report" and event.status == "COMPLETED"
+                for event in events
+            )
     finally:
         get_settings.cache_clear()
         if job_id:

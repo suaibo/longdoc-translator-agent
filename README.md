@@ -33,6 +33,8 @@
 - LangGraph `StateGraph`、PostgreSQL checkpointer、人工中断和恢复。
 - 单任务后台 Worker、进程启动恢复、chunk 边界取消。
 - 滑动窗口摘要、分类重试、调用指标和翻译质量检查。
+- 工作流节点事件时间线、失败节点展示和节点耗时记录。
+- 任务级真实 token 用量与可配置费用预算限制。
 - Markdown、HTML、manifest、原始文件与 `result.zip`。
 
 上传任务会由后台 Worker 自动推进到术语确认；用户确认术语后，LangGraph 从原中断点继续翻译。未配置 `LLM_API_KEY` 时，任务会明确进入 `FAILED`，不会回退到 mock 翻译。
@@ -40,7 +42,7 @@
 仍在开发：
 
 - 高风险 chunk 和章节级人工确认。
-- 工作流事件时间线、费用预算和供应商 fallback。
+- 非 LLM 长耗时节点的协作式超时，以及供应商 fallback。
 - 小说模式、长期记忆、专用子图、修订循环和多模型路由。
 - OpenTelemetry/LangSmith、replay 数据集和多任务独立 Worker。
 
@@ -77,9 +79,14 @@ py -3.12 -m venv .venv
 LLM_BASE_URL=https://api.deepseek.com
 LLM_API_KEY=your_deepseek_key
 LLM_MODEL=deepseek-v4-flash
+JOB_MAX_TOKEN_BUDGET=2000000
+JOB_MAX_COST_USD=0
+LLM_INPUT_COST_PER_MILLION=0
+LLM_OUTPUT_COST_PER_MILLION=0
 ```
 
 API Key 只能保存在本地 `.env`，不要提交到 Git。
+费用上限为 `0` 时禁用费用拦截；如需启用，应按当前 DeepSeek 模型价格填写每百万输入/输出 token 单价。
 
 启动数据库、执行迁移并运行应用：
 

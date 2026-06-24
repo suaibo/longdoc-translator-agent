@@ -98,6 +98,14 @@ def create_gradio_app() -> gr.Blocks:
                     label="风险项",
                 )
 
+            with gr.Tab("工作流时间线"):
+                events = gr.Dataframe(
+                    headers=["时间", "节点", "状态", "耗时(ms)", "说明"],
+                    datatype=["str", "str", "str", "number", "str"],
+                    interactive=False,
+                    label="节点执行记录",
+                )
+
             with gr.Tab("输出"):
                 bilingual = gr.File(label="双语 Markdown", interactive=False)
                 translated = gr.File(label="中文 Markdown", interactive=False)
@@ -113,6 +121,7 @@ def create_gradio_app() -> gr.Blocks:
             terms,
             chunks,
             risks,
+            events,
             bilingual,
             translated,
             report,

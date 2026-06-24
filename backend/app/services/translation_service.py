@@ -12,6 +12,7 @@ from app.models.risk_item import RiskItem
 from app.services.llm_service import LLMService
 from app.services.metric_service import MetricService
 from app.services.term_service import TermService
+from app.services.budget_service import BudgetService
 
 NUMBER_PATTERN = re.compile(r"(?<!\w)[+-]?\d+(?:[.,]\d+)*(?:%|[a-zA-Z]+)?")
 FORMULA_PATTERN = re.compile(r"\$\$.*?\$\$|\$[^$\n]+\$", re.DOTALL)
@@ -51,6 +52,7 @@ class TranslationService:
         chunk.updated_at = datetime.now(timezone.utc)
         self.db.commit()
         try:
+            BudgetService(self.db).assert_available(job_id)
             result = llm.translate_chunk(
                 chunk.source_text,
                 TermService(self.db).confirmed_map(job_id),
@@ -87,6 +89,7 @@ class TranslationService:
                 status_code=409,
             )
         llm = self.llm or LLMService()
+        BudgetService(self.db).assert_available(job_id)
         result = llm.summarize_chunk(chunk.source_text, chunk.translated_text)
         chunk.context_summary = result.content
         chunk.updated_at = datetime.now(timezone.utc)
@@ -106,6 +109,7 @@ class TranslationService:
             chunk.source_text, chunk.translated_text
         )
         llm = self.llm or LLMService()
+        BudgetService(self.db).assert_available(job_id)
         quality, result = llm.check_quality(chunk.source_text, chunk.translated_text)
         MetricService(self.db).record(
             job_id,

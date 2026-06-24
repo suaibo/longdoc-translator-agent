@@ -28,6 +28,7 @@ class TranslationMetric(Base):
     elapsed_ms: Mapped[int] = mapped_column(default=0)
     retry_count: Mapped[int] = mapped_column(default=0)
     failed_count: Mapped[int] = mapped_column(default=0)
+    estimated_cost_usd: Mapped[float] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     job = relationship("TranslationJob", back_populates="metrics")

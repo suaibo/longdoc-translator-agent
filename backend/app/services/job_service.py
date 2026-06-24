@@ -150,6 +150,8 @@ class JobService:
             ocr_mode=ocr_mode,
             workflow_version=self.settings.workflow_version,
             prompt_version=self.settings.prompt_version,
+            max_token_budget=self.settings.job_max_token_budget,
+            max_cost_usd=self.settings.job_max_cost_usd,
             status=JobStatus.UPLOADED.value,
             current_stage="uploaded",
             created_at=now,

@@ -8,6 +8,7 @@ from app.models.document_chunk import DocumentChunk
 from app.models.risk_item import RiskItem
 from app.models.term_entry import TermEntry
 from app.models.translation_job import TranslationJob
+from app.services.event_service import EventService
 
 
 def add_job(
@@ -160,3 +161,32 @@ def test_outputs_require_completed_status(
     assert response.status_code == 409
     assert listing.status_code == 200
     assert not any(item["available"] for item in listing.json()["data"])
+
+
+def test_workflow_events_endpoint(
+    client: TestClient, db_session: Session, tmp_path: Path
+) -> None:
+    job = add_job(
+        db_session,
+        tmp_path,
+        job_id="job_events_api",
+        status="COMPLETED",
+    )
+    EventService(db_session).record(
+        job.job_id,
+        "translate_chunk",
+        "NODE",
+        "FAILED",
+        message="provider timeout",
+        elapsed_ms=1200,
+        metadata={"chunkIndex": 2},
+    )
+
+    response = client.get(f"/api/jobs/{job.job_id}/events")
+
+    assert response.status_code == 200
+    event = response.json()["data"][0]
+    assert event["node"] == "translate_chunk"
+    assert event["status"] == "FAILED"
+    assert event["elapsedMs"] == 1200
+    assert event["metadata"] == {"chunkIndex": 2}

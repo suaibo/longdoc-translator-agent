@@ -40,6 +40,8 @@ class TranslationJob(Base):
     error_code: Mapped[str | None]
     error_message: Mapped[str | None]
     retry_count: Mapped[int] = mapped_column(default=0)
+    max_token_budget: Mapped[int] = mapped_column(default=2_000_000)
+    max_cost_usd: Mapped[float] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -55,3 +57,6 @@ class TranslationJob(Base):
         "TranslationMetric", back_populates="job", cascade="all, delete-orphan"
     )
     risks = relationship("RiskItem", back_populates="job", cascade="all, delete-orphan")
+    events = relationship(
+        "WorkflowEvent", back_populates="job", cascade="all, delete-orphan"
+    )

@@ -6,11 +6,13 @@ from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import RedirectResponse
 
-from app.api.routes_health import router as health_router
 from app.api.routes_chunks import router as chunks_router
+from app.api.routes_events import router as events_router
+from app.api.routes_health import router as health_router
 from app.api.routes_jobs import router as jobs_router
 from app.api.routes_outputs import router as outputs_router
 from app.api.routes_terms import router as terms_router
+from app.core.config import get_settings
 from app.core.errors import (
     AppError,
     app_error_handler,
@@ -19,9 +21,8 @@ from app.core.errors import (
 )
 from app.core.logging import configure_logging
 from app.db.session import verify_database_connection
-from app.ui.gradio_app import create_gradio_app
-from app.core.config import get_settings
 from app.services.worker_service import get_worker
+from app.ui.gradio_app import create_gradio_app
 
 
 @asynccontextmanager
@@ -46,6 +47,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(health_router)
     app.include_router(jobs_router)
+    app.include_router(events_router)
     app.include_router(terms_router)
     app.include_router(chunks_router)
     app.include_router(outputs_router)

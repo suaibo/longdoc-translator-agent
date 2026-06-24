@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     llm_max_retries: int = 3
     llm_retry_base_seconds: float = 1
     llm_max_output_tokens: int = 8192
+    job_max_token_budget: int = 2_000_000
+    job_max_cost_usd: float = 0
+    llm_input_cost_per_million: float = 0
+    llm_output_cost_per_million: float = 0
     workflow_version: str = "1"
     prompt_version: str = "1"
 
