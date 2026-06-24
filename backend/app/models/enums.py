@@ -19,6 +19,14 @@ class ChunkStatus(StrEnum):
     SKIPPED = "SKIPPED"
 
 
+class ChunkType(StrEnum):
+    TEXT = "TEXT"
+    TABLE = "TABLE"
+    FORMULA = "FORMULA"
+    PICTURE = "PICTURE"
+    CODE = "CODE"
+
+
 class RiskType(StrEnum):
     TABLE = "TABLE"
     FORMULA = "FORMULA"

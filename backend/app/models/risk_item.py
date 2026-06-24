@@ -1,4 +1,4 @@
-﻿from sqlalchemy import ForeignKey, Index
+from sqlalchemy import ForeignKey, Index, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -12,7 +12,9 @@ class RiskItem(Base):
     )
 
     risk_id: Mapped[str] = mapped_column(primary_key=True)
-    job_id: Mapped[str] = mapped_column(ForeignKey("translation_job.job_id", ondelete="CASCADE"))
+    job_id: Mapped[str] = mapped_column(
+        ForeignKey("translation_job.job_id", ondelete="CASCADE")
+    )
     chunk_id: Mapped[str | None] = mapped_column(
         ForeignKey("document_chunk.chunk_id", ondelete="SET NULL")
     )
@@ -20,8 +22,8 @@ class RiskItem(Base):
     severity: Mapped[str] = mapped_column(default="MEDIUM")
     message: Mapped[str]
     source_excerpt: Mapped[str | None]
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[str]
 
     job = relationship("TranslationJob", back_populates="risks")
     chunk = relationship("DocumentChunk", back_populates="risks")
-

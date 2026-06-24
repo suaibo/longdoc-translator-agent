@@ -70,6 +70,26 @@ def test_markdown_creates_structured_table_formula_and_long_paragraph(
     assert RiskType.LONG_PARAGRAPH in risk_types(blocks[3])
 
 
+def test_markdown_recognizes_numbered_table_and_figure_captions(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "captions.md"
+    source.write_text(
+        "Table 1. Results\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n"
+        "Figure 2: Architecture\n\nDescription text.",
+        encoding="utf-8",
+    )
+
+    blocks = ParserService().parse(source)
+
+    assert [block.kind for block in blocks] == [
+        BlockKind.CAPTION,
+        BlockKind.TABLE,
+        BlockKind.CAPTION,
+        BlockKind.PARAGRAPH,
+    ]
+
+
 def test_txt_paragraphs_share_the_same_block_model(tmp_path: Path) -> None:
     source = tmp_path / "paper.txt"
     source.write_text("First paragraph.\n\nSecond paragraph.", encoding="utf-8")
@@ -185,6 +205,9 @@ def test_docling_pdf_items_map_to_parsed_blocks(tmp_path: Path) -> None:
     class FakeTable:
         label = SimpleNamespace(value="table")
         text = "Method Score"
+        self_ref = "#/tables/0"
+        parent = SimpleNamespace(cref="#/body/0")
+        captions = [SimpleNamespace(cref="#/texts/0")]
         prov = [SimpleNamespace(page_no=1, bbox=FakeBBox())]
 
         @staticmethod
@@ -208,6 +231,9 @@ def test_docling_pdf_items_map_to_parsed_blocks(tmp_path: Path) -> None:
     assert blocks[0].kind == BlockKind.TABLE
     assert blocks[0].bbox is not None
     assert blocks[0].bbox.page_width == 600
+    assert blocks[0].metadata["docling_self_ref"] == "#/tables/0"
+    assert blocks[0].metadata["docling_parent_ref"] == "#/body/0"
+    assert blocks[0].metadata["docling_caption_refs"] == ["#/texts/0"]
     assert RiskType.TABLE in risk_types(blocks[0])
 
 

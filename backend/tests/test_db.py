@@ -1,5 +1,5 @@
-﻿import pytest
-from sqlalchemy import create_engine, event, inspect
+import pytest
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
@@ -76,3 +76,57 @@ def test_document_chunk_unique_job_index_constraint() -> None:
 
     with pytest.raises(IntegrityError):
         db.commit()
+
+
+def test_init_db_adds_chunk_metadata_columns_to_existing_sqlite(tmp_path) -> None:
+    database_path = tmp_path / "legacy.db"
+    engine = create_engine(f"sqlite:///{database_path.as_posix()}", future=True)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE document_chunk (
+                    chunk_id TEXT PRIMARY KEY,
+                    job_id TEXT NOT NULL,
+                    chunk_index INTEGER NOT NULL,
+                    section_title TEXT,
+                    source_text TEXT NOT NULL,
+                    translated_text TEXT,
+                    context_summary TEXT,
+                    status TEXT NOT NULL DEFAULT 'PENDING',
+                    has_risk INTEGER NOT NULL DEFAULT 0,
+                    risk_summary TEXT,
+                    token_estimate INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    translated_at TEXT
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                CREATE TABLE risk_item (
+                    risk_id TEXT PRIMARY KEY,
+                    job_id TEXT NOT NULL,
+                    chunk_id TEXT,
+                    risk_type TEXT NOT NULL,
+                    severity TEXT NOT NULL DEFAULT 'MEDIUM',
+                    message TEXT NOT NULL,
+                    source_excerpt TEXT,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+        )
+
+    init_db(engine)
+
+    inspector = inspect(engine)
+    chunk_columns = {
+        column["name"] for column in inspector.get_columns("document_chunk")
+    }
+    risk_columns = {column["name"] for column in inspector.get_columns("risk_item")}
+    assert {"chunk_type", "source_block_ids", "structure_metadata"} <= chunk_columns
+    assert "metadata_json" in risk_columns

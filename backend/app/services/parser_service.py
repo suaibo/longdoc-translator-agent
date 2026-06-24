@@ -97,7 +97,18 @@ class ParserService:
                     page_no=page_no,
                     bbox=bbox,
                     heading_level=level,
-                    metadata={"docling_label": label, "docling_depth": depth},
+                    metadata={
+                        "docling_label": label,
+                        "docling_depth": depth,
+                        "docling_self_ref": getattr(item, "self_ref", None),
+                        "docling_parent_ref": getattr(
+                            getattr(item, "parent", None), "cref", None
+                        ),
+                        "docling_caption_refs": [
+                            getattr(reference, "cref", None)
+                            for reference in getattr(item, "captions", [])
+                        ],
+                    },
                 )
             )
         return blocks
@@ -152,6 +163,14 @@ class ParserService:
                 blocks.append(
                     self._text_block(blocks, BlockKind.TABLE, markdown, markdown)
                 )
+                continue
+
+            if self._is_caption(line):
+                caption = line.strip()
+                blocks.append(
+                    self._text_block(blocks, BlockKind.CAPTION, caption, caption)
+                )
+                index += 1
                 continue
 
             list_item = re.match(r"^\s*((?:[-*+])|(?:\d+\.))\s+(.+)$", line)
@@ -265,6 +284,16 @@ class ParserService:
             text=text,
             markdown=markdown,
             heading_level=heading_level,
+        )
+
+    @staticmethod
+    def _is_caption(line: str) -> bool:
+        return bool(
+            re.match(
+                r"^\s*(?:(?:Table|Figure|Fig\.)\s+\d+\s*[.:]|[表图]\s*\d+\s*[：:.])\s*.+$",
+                line,
+                re.IGNORECASE,
+            )
         )
 
     @staticmethod

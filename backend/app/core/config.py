@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     storage_root: Path = Field(default=DEFAULT_STORAGE_ROOT)
     max_upload_bytes: int = 50 * 1024 * 1024
     upload_read_size: int = 1024 * 1024
+    chunk_max_tokens: int = 1800
+    table_max_rows: int = 20
 
     llm_base_url: str = "https://api.deepseek.com"
     llm_api_key: str = ""

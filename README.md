@@ -29,14 +29,25 @@
 - Markdown、TXT 统一转换为 `ParsedBlock[]`
 - 双栏阅读顺序修正、重复页眉页脚过滤
 - 表格、公式、引用、长段落和结构风险标记
+- 按章节和 token 阈值生成翻译 chunk
+- 小表、公式和代码原子化处理
+- 大表按完整数据行分组，并保留 caption/header 合并元数据
+- chunk 风险继承、幂等落库和旧 SQLite 结构增量升级
 
 后续将按模块继续实现：
 
-- 章节与段落 Chunk Service
 - DeepSeek 术语抽取与人工确认
 - 分块翻译、滑动窗口记忆和 LangGraph 检查点
 - 失败恢复、输出文件和翻译报告
 - React Web 控制台完整流程
+
+## 当前实现边界
+
+- Chunk Service 已作为独立领域服务实现，尚未接入 LangGraph Worker，因此上传任务不会自动推进到切块阶段。
+- `CHUNK_MAX_TOKENS` 使用本地启发式 token 估算，不等同于 DeepSeek 服务端 tokenizer；接入真实 LLM 后需要用调用指标校准阈值。
+- `TABLE_MAX_ROWS` 控制大表的最大行组；只有超过行数或 token 阈值的表格才会拆分。
+- PDF caption 优先通过 Docling 引用关联，Markdown/TXT 使用相邻 caption 作为 fallback。引用缺失或复杂跨页表格仍保留原结果并进入风险检查。
+- 当前数据库采用启动时加法迁移，为已有 SQLite 增加新列，不删除或改写旧列。进入多环境部署前应再引入 Alembic。
 
 ## MVP 范围
 
@@ -172,8 +183,8 @@ longdoc-translator-agent/
 │  │  ├─ core/             配置、响应、错误码和日志
 │  │  ├─ db/               数据库连接与初始化
 │  │  ├─ models/           SQLAlchemy ORM 模型
-│  │  ├─ schemas/          Pydantic DTO 与解析中间模型
-│  │  ├─ services/         任务、解析和版面标准化服务
+│  │  ├─ schemas/          Pydantic DTO、解析和 chunk 中间模型
+│  │  ├─ services/         任务、解析、版面标准化和切块服务
 │  │  ├─ storage/          运行时存储路径
 │  │  └─ main.py           FastAPI 应用入口
 │  ├─ tests/               后端测试

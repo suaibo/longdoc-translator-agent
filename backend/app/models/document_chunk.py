@@ -1,4 +1,4 @@
-﻿from sqlalchemy import ForeignKey, Index, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -13,10 +13,15 @@ class DocumentChunk(Base):
     )
 
     chunk_id: Mapped[str] = mapped_column(primary_key=True)
-    job_id: Mapped[str] = mapped_column(ForeignKey("translation_job.job_id", ondelete="CASCADE"))
+    job_id: Mapped[str] = mapped_column(
+        ForeignKey("translation_job.job_id", ondelete="CASCADE")
+    )
     chunk_index: Mapped[int]
     section_title: Mapped[str | None]
+    chunk_type: Mapped[str] = mapped_column(default="TEXT")
     source_text: Mapped[str]
+    source_block_ids: Mapped[str] = mapped_column(Text, default="[]")
+    structure_metadata: Mapped[str] = mapped_column(Text, default="{}")
     translated_text: Mapped[str | None]
     context_summary: Mapped[str | None]
     status: Mapped[str] = mapped_column(default="PENDING")
@@ -30,4 +35,3 @@ class DocumentChunk(Base):
     job = relationship("TranslationJob", back_populates="chunks")
     metrics = relationship("TranslationMetric", back_populates="chunk")
     risks = relationship("RiskItem", back_populates="chunk")
-
