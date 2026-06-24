@@ -66,3 +66,9 @@ class TranslationJob(Base):
     reviews = relationship(
         "ReviewRequest", back_populates="job", cascade="all, delete-orphan"
     )
+    story_memories = relationship(
+        "StoryMemory", back_populates="job", cascade="all, delete-orphan"
+    )
+    chapter_memories = relationship(
+        "ChapterMemory", back_populates="job", cascade="all, delete-orphan"
+    )

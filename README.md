@@ -38,6 +38,8 @@
 - 可选高风险 chunk 与章节结束人工审核，支持持久化中断和恢复。
 - 术语/翻译/摘要/质检模型路由、单一备用供应商 fallback。
 - HIGH 质量问题的有限次数自动修订循环。
+- 小说模式人物/地点/设定记忆与章节长期摘要。
+- 表格、公式、引用的嵌套 LangGraph 结构校验子图。
 - Markdown、HTML、manifest、原始文件与 `result.zip`。
 
 上传任务会由后台 Worker 自动推进到术语确认；用户确认术语后，LangGraph 从原中断点继续翻译。未配置 `LLM_API_KEY` 时，任务会明确进入 `FAILED`，不会回退到 mock 翻译。
@@ -45,7 +47,6 @@
 仍在开发：
 
 - 非 LLM 长耗时节点的协作式超时。
-- 小说模式、长期记忆、专用子图、修订循环和多模型路由。
 - OpenTelemetry/LangSmith、replay 数据集和多任务独立 Worker。
 
 ## 技术栈

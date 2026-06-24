@@ -113,6 +113,12 @@ def build_workflow(checkpointer=None):
         "mark_risks", _instrument_node("mark_risks", nodes.mark_risks)
     )
     builder.add_node(
+        "update_long_term_memory",
+        _instrument_node(
+            "update_long_term_memory", nodes.update_long_term_memory
+        ),
+    )
+    builder.add_node(
         "interrupt_for_high_risk_review",
         _instrument_node(
             "interrupt_for_high_risk_review",
@@ -152,7 +158,8 @@ def build_workflow(checkpointer=None):
             "cancelled": END,
         },
     )
-    builder.add_edge("summarize_chunk_context", "mark_risks")
+    builder.add_edge("summarize_chunk_context", "update_long_term_memory")
+    builder.add_edge("update_long_term_memory", "mark_risks")
     builder.add_edge("mark_risks", "interrupt_for_high_risk_review")
     builder.add_edge(
         "interrupt_for_high_risk_review", "interrupt_for_chapter_review"

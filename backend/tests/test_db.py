@@ -35,6 +35,8 @@ def test_alembic_creates_core_tables(db_session: Session) -> None:
         "risk_item",
         "workflow_event",
         "review_request",
+        "story_memory",
+        "chapter_memory",
         "alembic_version",
         "checkpoints",
         "checkpoint_blobs",

@@ -72,6 +72,16 @@ def test_missing_job_returns_not_found(client: TestClient) -> None:
     assert response.json()["code"] == 40401
 
 
+def test_create_accepts_novel_mode(client: TestClient) -> None:
+    response = client.post(
+        "/api/jobs",
+        files={"file": ("novel.md", b"# Chapter 1\n\nAlice arrived.")},
+        data={"mode": "novel"},
+    )
+
+    assert response.status_code == 200
+
+
 def test_cancel_active_job_and_reject_second_cancel(client: TestClient) -> None:
     created = client.post("/api/jobs", files={"file": ("paper.txt", b"text")})
     job_id = created.json()["data"]["jobId"]

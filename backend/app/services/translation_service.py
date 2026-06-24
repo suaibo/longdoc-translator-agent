@@ -5,13 +5,16 @@ from uuid import NAMESPACE_URL, uuid5
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.agent.structure_subgraphs import validate_structure
 from app.core.config import get_settings
 from app.core.errors import AppError, ErrorCode
 from app.models.document_chunk import DocumentChunk
 from app.models.enums import ChunkStatus, RiskType
 from app.models.risk_item import RiskItem
+from app.models.translation_job import TranslationJob
 from app.services.llm_service import LLMService
 from app.services.metric_service import MetricService
+from app.services.memory_service import MemoryService
 from app.services.term_service import TermService
 from app.services.budget_service import BudgetService
 
@@ -59,6 +62,10 @@ class TranslationService:
                 TermService(self.db).confirmed_map(job_id),
                 self._section_summary(job_id, chunk),
                 previous_summary,
+                MemoryService(self.db).context(job_id)
+                if self._job_mode(job_id) == "novel"
+                else None,
+                self._profile(chunk),
             )
             chunk.translated_text = result.content
             chunk.status = ChunkStatus.COMPLETED.value
@@ -151,6 +158,18 @@ class TranslationService:
             chunk.source_text, chunk.translated_text
         )
         findings.extend(
+            (
+                self._risk_type(issue["type"]),
+                issue["message"],
+                issue["severity"],
+            )
+            for issue in validate_structure(
+                self._profile(chunk),
+                chunk.source_text,
+                chunk.translated_text,
+            )
+        )
+        findings.extend(
             (self._risk_type(issue.type), issue.message, issue.severity)
             for issue in quality.issues
         )
@@ -212,6 +231,18 @@ class TranslationService:
         )
         return "\n".join(reversed([summary for summary in summaries if summary])) or None
 
+    def _job_mode(self, job_id: str) -> str:
+        job = self.db.get(TranslationJob, job_id)
+        return job.mode if job else "paper"
+
+    @staticmethod
+    def _profile(chunk: DocumentChunk) -> str:
+        if chunk.chunk_type in {"TABLE", "FORMULA"}:
+            return chunk.chunk_type.lower()
+        if CITATION_PATTERN.search(chunk.source_text):
+            return "reference"
+        return "text"
+
     @staticmethod
     def _deterministic_findings(
         source: str, translated: str
@@ -238,6 +269,7 @@ class TranslationService:
     def _risk_type(value: str) -> RiskType:
         normalized = value.upper()
         aliases = {
+            "TABLE": RiskType.TABLE,
             "OMISSION": RiskType.OMISSION,
             "TERMINOLOGY": RiskType.TERMINOLOGY,
             "NUMBER": RiskType.NUMBER_MISMATCH,
@@ -246,6 +278,7 @@ class TranslationService:
             "FORMULA_MISMATCH": RiskType.FORMULA_MISMATCH,
             "CITATION": RiskType.CITATION_MISMATCH,
             "CITATION_MISMATCH": RiskType.CITATION_MISMATCH,
+            "REFERENCE": RiskType.REFERENCE,
         }
         return aliases.get(normalized, RiskType.OMISSION)
 

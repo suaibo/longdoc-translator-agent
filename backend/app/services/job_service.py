@@ -128,10 +128,10 @@ class JobService:
         extension = Path(original_filename).suffix.lower()
         if not original_filename or extension not in SUPPORTED_EXTENSIONS:
             raise AppError(ErrorCode.UNSUPPORTED_FILE_TYPE, status_code=400)
-        if mode != "paper":
+        if mode not in {"paper", "novel"}:
             raise AppError(
                 ErrorCode.VALIDATION_ERROR,
-                "mode 目前仅支持 paper",
+                "mode 仅支持 paper 或 novel",
                 status_code=422,
             )
         if ocr_mode not in {"auto", "off", "force"}:

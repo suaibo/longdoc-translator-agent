@@ -22,6 +22,7 @@ from app.services.checkpoint_service import CheckpointService
 from app.services.chunk_service import ChunkService
 from app.services.document_ir_service import DocumentIRService
 from app.services.output_service import OutputService
+from app.services.memory_service import MemoryService
 from app.services.parser_service import ParserService
 from app.services.review_service import ReviewService
 from app.services.term_service import TermService
@@ -195,6 +196,22 @@ class WorkflowNodes:
                 raise AppError(ErrorCode.INVALID_STATE, "当前 chunk 不存在", status_code=409)
             TranslationService(db).mark_quality_risks(job.job_id, chunk)
             return {}
+
+    def update_long_term_memory(
+        self, state: TranslationState
+    ) -> dict[str, Any]:
+        with SessionLocal() as db:
+            job = self._job(db, state["job_id"])
+            if job.mode != "novel":
+                return {}
+            chunk = db.get(DocumentChunk, state["current_chunk_id"])
+            if chunk is None:
+                raise AppError(
+                    ErrorCode.INVALID_STATE, "当前 chunk 不存在", status_code=409
+                )
+            job.current_stage = "update_long_term_memory"
+            MemoryService(db).update(job.job_id, chunk)
+        return {}
 
     def interrupt_for_high_risk_review(
         self, state: TranslationState

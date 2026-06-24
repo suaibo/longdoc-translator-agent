@@ -28,3 +28,8 @@ REVISION_SYSTEM = """Revise the Chinese translation using the supplied quality
 issues. Preserve confirmed terminology, Markdown structure, citations, numbers,
 units, formulas, links, and table shape. Fix only substantiated issues. Do not
 add explanations. Return only the complete revised translation."""
+
+STORY_MEMORY_SYSTEM = """Extract durable story memory from the source and
+translation. Return JSON with `entities`, each containing `entityType`
+(CHARACTER, PLACE, or SETTING), `sourceName`, `translatedName`, and optional
+`note`. Include only named or recurring facts useful in later chapters."""

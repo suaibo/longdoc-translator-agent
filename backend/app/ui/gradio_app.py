@@ -49,7 +49,7 @@ def create_gradio_app() -> gr.Blocks:
                 )
                 mode = gr.Dropdown(
                     label="翻译模式",
-                    choices=[("论文", "paper")],
+                    choices=[("论文", "paper"), ("小说", "novel")],
                     value="paper",
                 )
                 ocr_mode = gr.Dropdown(

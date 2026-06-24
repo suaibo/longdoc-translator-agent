@@ -18,13 +18,19 @@ from pydantic import ValidationError
 from app.agent.prompts import (
     QUALITY_SYSTEM,
     REVISION_SYSTEM,
+    STORY_MEMORY_SYSTEM,
     SUMMARY_SYSTEM,
     TERM_EXTRACTION_SYSTEM,
     TRANSLATION_SYSTEM,
 )
 from app.core.config import get_settings
 from app.core.errors import AppError, ErrorCode
-from app.schemas.llm import LLMResult, LLMUsage, QualityResult
+from app.schemas.llm import (
+    LLMResult,
+    LLMUsage,
+    QualityResult,
+    StoryMemoryResult,
+)
 from app.schemas.term import TermExtractionResult, TermSuggestion
 
 RETRYABLE_ERRORS = (
@@ -114,12 +120,16 @@ class LLMService:
         terms: dict[str, str],
         section_summary: str | None,
         previous_summary: str | None,
+        story_memory: dict[str, Any] | None = None,
+        profile: str = "text",
     ) -> LLMResult:
         context = {
             "confirmedTerms": terms,
             "sectionSummary": section_summary or "",
             "previousChunkSummary": previous_summary or "",
             "sourceChunk": source_text,
+            "storyMemory": story_memory or {},
+            "translationProfile": profile,
         }
         return self._chat(
             [
@@ -132,6 +142,32 @@ class LLMService:
             ,
             task="translation",
         )
+
+    def extract_story_memory(
+        self, original: str, translated: str
+    ) -> tuple[StoryMemoryResult, LLMResult]:
+        result = self._chat(
+            [
+                {"role": "system", "content": STORY_MEMORY_SYSTEM},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {"source": original, "translation": translated},
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+            json_output=True,
+            task="summary",
+        )
+        try:
+            return StoryMemoryResult.model_validate_json(result.content), result
+        except ValidationError as exc:
+            raise AppError(
+                ErrorCode.LLM_CALL_FAILED,
+                f"故事记忆 JSON 校验失败: {exc}",
+                status_code=502,
+            ) from exc
 
     def summarize_chunk(self, original: str, translated: str) -> LLMResult:
         return self._chat(

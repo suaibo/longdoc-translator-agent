@@ -28,6 +28,8 @@ class FakeLLM:
         terms: dict[str, str],
         section_summary: str | None,
         previous_summary: str | None,
+        story_memory=None,
+        profile: str = "text",
     ) -> LLMResult:
         translated = source_text.replace(
             "checkpoint", terms.get("checkpoint", "检查点")
@@ -48,6 +50,11 @@ class FakeLLM:
         terms: dict[str, str],
     ) -> LLMResult:
         return self.result(translated)
+
+    def extract_story_memory(self, original: str, translated: str):
+        from app.schemas.llm import StoryMemoryResult
+
+        return StoryMemoryResult(entities=[]), self.result('{"entities": []}')
 
     @staticmethod
     def result(content: str) -> LLMResult:

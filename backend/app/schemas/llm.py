@@ -24,3 +24,14 @@ class QualityIssue(BaseModel):
 
 class QualityResult(BaseModel):
     issues: list[QualityIssue] = Field(default_factory=list)
+
+
+class StoryEntity(BaseModel):
+    entity_type: str = Field(alias="entityType")
+    source_name: str = Field(alias="sourceName")
+    translated_name: str = Field(alias="translatedName")
+    note: str | None = None
+
+
+class StoryMemoryResult(BaseModel):
+    entities: list[StoryEntity] = Field(default_factory=list)
