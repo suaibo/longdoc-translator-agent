@@ -16,11 +16,12 @@
 - `docs/接口说明.md`
 - `docs/测试计划.md`
 - `docs/前端UI设计.md`
+- `docs/文档结构与输出策略.md`
 
 如果文档之间冲突，优先级如下：
 
 ```text
-用户最新明确指令 > docs/需求文档.md > docs/架构设计.md > docs/接口说明.md > docs/前端UI设计.md > docs/数据库设计.md > docs/测试计划.md > README.md
+用户最新明确指令 > docs/需求文档.md > docs/架构设计.md > docs/文档结构与输出策略.md > docs/接口说明.md > docs/前端UI设计.md > docs/数据库设计.md > docs/测试计划.md > README.md
 ```
 
 原则：如果修改了架构、接口、数据表或 MVP 范围，需要同步更新对应文档，不要只改代码。
@@ -33,7 +34,7 @@ LongDoc Translator Agent 是一个面向长文档的结构化翻译 Agent。
 
 MVP 目标：
 
-> 完整跑通“论文翻译模式”：上传文档 -> 结构化解析 -> 分章节/段落切块 -> 抽取术语 -> 人工确认术语 -> 分块翻译 -> 保存检查点 -> 导出双语 Markdown、中文 Markdown 和翻译报告。
+> 完整跑通“论文翻译模式”：上传文档 -> 结构化解析 -> DocumentIR/章节结构 -> 混合切块 -> 抽取术语 -> 人工确认术语 -> 分块翻译 -> 保存检查点 -> 导出可编辑 Markdown、可读 HTML、原始文件和翻译报告。
 
 它不是：
 
@@ -49,7 +50,7 @@ MVP 目标：
 MVP 的核心竞争力是：
 
 ```text
-长文档翻译流程的工程化：结构化解析、术语确认、分块翻译、滑动窗口记忆、检查点恢复、风险报告。
+长文档翻译流程的工程化：结构化解析、DocumentIR、可解释混合切分、术语确认、滑动窗口记忆、检查点恢复、复杂结构渲染和风险报告。
 ```
 
 判断一个功能是否应该进入 MVP，先问：
@@ -104,9 +105,9 @@ MVP 必做：
 - 上传 `PDF / Markdown / TXT`
 - 创建翻译任务
 - 查询任务列表和任务详情
-- Docling 解析 PDF，并导出结构化 Markdown
+- Docling 解析 PDF，输出 ParsedBlock、调试 Markdown，并逐步构建 DocumentIR Lite
 - Markdown / TXT 进入统一切分流程
-- 按章节和段落切分 chunk
+- 结构边界优先、语义边界辅助、token 上限兜底地切分 chunk
 - 标记表格、公式、引用、疑似 OCR 异常等风险片段
 - Agent 抽取术语表和建议译名
 - 人工编辑并确认术语表
@@ -115,7 +116,8 @@ MVP 必做：
 - 每个 chunk 完成后保存数据库状态和检查点
 - 失败后可从最近完成 chunk 恢复
 - 可取消任务
-- 导出：`bilingual.md`、`translated.md`、`report.md`
+- 基础导出：`bilingual.md`、`translated.md`、`report.md`
+- 输出增强：`bilingual.html`、`translated.html`、原始文件和 `result.zip`
 - Web 控制台完整演示上传、术语确认、进度和下载
 
 MVP 暂不做：
@@ -125,8 +127,7 @@ MVP 暂不做：
 - 多任务并发队列
 - WebSocket / SSE 实时推送
 - DOCX 导出
-- HTML 导出
-- PDF 导出
+- 翻译 PDF 导出（原始 PDF 保留与下载属于 MVP 输出增强）
 - 在线编辑译文
 - 翻译记忆库 TM
 - 向量数据库
@@ -144,7 +145,7 @@ V1 可扩展：
 - 每章人工确认
 - 风险片段人工确认
 - 可插拔解析器：Marker / MinerU / MarkItDown
-- DOCX / PDF 导出
+- DOCX / 双语批注 PDF / 重排中文版 PDF
 - SSE 进度推送
 
 ---
@@ -447,18 +448,24 @@ MVP 核心表：
 运行时目录：
 
 ```text
-storage/uploads/{jobId}/
+storage/uploads/{jobId}/original.ext
 storage/parsed/{jobId}/document.md
+storage/parsed/{jobId}/document.ir.json        # 输出增强前置，尚未实现
+storage/parsed/{jobId}/assets/
 storage/outputs/{jobId}/bilingual.md
 storage/outputs/{jobId}/translated.md
 storage/outputs/{jobId}/report.md
+storage/outputs/{jobId}/bilingual.html         # 输出增强
+storage/outputs/{jobId}/translated.html        # 输出增强
+storage/outputs/{jobId}/manifest.json          # 输出增强
+storage/outputs/{jobId}/result.zip             # 输出增强
 ```
 
 建议：
 
 - 上传原文件保留原始文件名和安全后的存储文件名。
 - 数据库保存文件路径和原始文件名。
-- 输出文件统一由 `OutputService` 生成。
+- 输出文件统一由 `OutputService` 生成，复杂结构交给 RenderService 按 GFM / HTML / image fallback 渲染。
 - 不要把真实用户上传文件提交到 Git。
 
 ---
@@ -473,16 +480,17 @@ storage/outputs/{jobId}/report.md
 4. 建 SQLite 表和初始化逻辑。
 5. 实现任务创建、文件上传、任务列表、任务详情。
 6. 先实现 Markdown / TXT 解析，跑通最小流程。
-7. 实现 chunk 切分和风险标记。
-8. 接入术语抽取，先允许 mock LLM，再接真实 OpenAI-compatible API。
-9. 实现术语确认接口和前端页面。
-10. 实现翻译 worker，先 mock 翻译，再接真实 LLM。
-11. 实现 chunk 级检查点、失败状态和 resume。
-12. 实现 cancel。
-13. 实现输出文件生成和下载。
-14. 接入 Docling PDF 解析和 OCR 模式。
-15. 补测试和 README 运行说明。
-16. 准备演示样例和截图。
+7. 实现 chunk 规则基线和风险标记。
+8. 实现标题栈、sectionPath、DocumentIR Lite 和结构资产。
+9. 实现 target/soft/hard 预算、可解释边界和可降级语义评分。
+10. 接入术语抽取，先允许 mock LLM，再接真实 OpenAI-compatible API。
+11. 实现术语确认接口和前端页面。
+12. 实现翻译 worker，先 mock 翻译，再接真实 LLM。
+13. 实现 chunk 级检查点、失败状态、resume 和 cancel。
+14. 实现基础 Markdown 输出。
+15. 实现表格/公式分级渲染、HTML、原始文件下载和 result.zip。
+16. 接入 Docling PDF 解析和 OCR 模式。
+17. 补测试、README、演示样例和截图。
 
 原则：
 
@@ -606,3 +614,49 @@ LLM_MODEL=
 - 完整小说模式
 
 先让 MVP 跑起来，再逐步增强深度。
+
+---
+
+## 18. 文档结构、切分与输出固定决策
+
+后续实现必须遵守 `docs/文档结构与输出策略.md`：
+
+### 18.1 当前与目标能力
+
+- 当前 Chunk Service 是结构感知、句界保护、单一 token 阈值的规则基线。
+- 不得把当前实现宣传为完整语义切分。
+- 目标算法是“结构边界优先、语义边界辅助、token 上限兜底”。
+- 语义评分服务不可用时必须回退规则基线，不让主流程失败。
+
+### 18.2 分块前结构
+
+- 当前正文 block 暂存在 `ParsedBlock[]`，并渲染到 `document.md`。
+- 目标增加版本化 `document.ir.json`，保存标题树、sectionPath、TableIR、FormulaIR、FigureIR 和资产引用。
+- Markdown 是渲染结果，不是复杂论文结构的唯一真相。
+
+### 18.3 表格和公式
+
+- 简单可信表格使用 GFM。
+- 复杂可信表格使用 HTML table。
+- 低置信度表格使用原始截图、可用 CSV/JSON 和风险说明。
+- 不能为了视觉整齐猜测性重建表格。
+- 公式优先保存 LaTeX、编号和原始截图兜底，不让翻译模型改写公式结构。
+
+### 18.4 输出与 PDF
+
+- Markdown 用于可编辑交换。
+- HTML 用于用户直接阅读。
+- result.zip 携带 HTML、Markdown、原始文件和所有资产。
+- 原始 PDF 必须完整保留，但不能称为翻译 PDF。
+- V1 优先做双语批注 PDF，V2 再做重排中文版 PDF。
+- HTML 必须转义不可信文本并使用标签白名单；ZIP/manifest 路径必须防止路径穿越。
+
+### 18.5 实现顺序
+
+1. 标题栈和 sectionPath。
+2. DocumentIR Lite 与结构资产。
+3. target/soft/hard token 预算和边界原因。
+4. 本地语义相似度与可插拔 embedding。
+5. TableIR/FormulaIR/FigureIR 渲染。
+6. HTML、manifest、原始文件下载和 result.zip。
+7. 双语批注 PDF。

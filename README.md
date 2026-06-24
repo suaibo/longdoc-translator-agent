@@ -6,8 +6,8 @@
 
 ```text
 上传文档
--> 结构化解析
--> 章节与段落切块
+-> 结构化解析与 DocumentIR
+-> 结构边界优先的混合切块
 -> 术语抽取
 -> 人工确认术语
 -> 分块翻译
@@ -34,11 +34,15 @@
 - 大表按完整数据行分组，并保留 caption/header 合并元数据
 - chunk 风险继承、幂等落库和旧 SQLite 结构增量升级
 
+当前 Chunk Service 是“结构感知 + 句界保护 + token 预算”的规则基线，不是完整 embedding/LLM 语义切分。
+
 后续将按模块继续实现：
 
+- DocumentIR Lite、标题层级路径和结构资产持久化
+- 结构边界优先、语义边界辅助、token 上限兜底的混合切分
 - DeepSeek 术语抽取与人工确认
 - 分块翻译、滑动窗口记忆和 LangGraph 检查点
-- 失败恢复、输出文件和翻译报告
+- HTML 阅读输出、结果资源包、失败恢复和翻译报告
 - React Web 控制台完整流程
 
 ## 当前实现边界
@@ -49,6 +53,9 @@
 - `TABLE_MAX_ROWS` 控制大表的最大行组；只有超过行数或 token 阈值的表格才会拆分。
 - PDF caption 优先通过 Docling 引用关联，Markdown/TXT 使用相邻 caption 作为 fallback。引用缺失或复杂跨页表格仍保留原结果并进入风险检查。
 - 当前数据库采用启动时加法迁移，为已有 SQLite 增加新列，不删除或改写旧列。进入多环境部署前应再引入 Alembic。
+- 分块前的正文结构当前主要保存在内存 `ParsedBlock[]` 和 `storage/parsed/{jobId}/document.md`；可持久化 `document.ir.json`、标题路径和语义边界元数据尚未实现。
+- GFM Markdown 表格只适合简单二维表格，源码中的 `|` 不保证视觉对齐；复杂表格的 HTML 渲染、原图兜底和资源包输出属于下一阶段。
+- 原始 PDF 会保留，但当前没有翻译 PDF；后续优先做原 PDF + 双语批注，再考虑重排中文版 PDF。
 
 ## MVP 范围
 
@@ -57,13 +64,13 @@ MVP 支持：
 - 上传 `PDF / Markdown / TXT`
 - 使用 Docling 解析 PDF
 - 按结构生成统一文档块
-- 按章节、段落和表格切分翻译 chunk
+- 以结构边界为硬约束切分章节、段落和表格；后续加入可解释语义边界
 - 使用 DeepSeek 抽取术语并等待人工确认
 - 使用确认后的术语分块翻译
 - 每个 chunk 完成后保存状态和检查点
 - 失败后从最近完成位置继续
 - 在 chunk 边界取消任务
-- 导出 `bilingual.md`、`translated.md` 和 `report.md`
+- 导出 `bilingual.md`、`translated.md` 和 `report.md`；MVP 输出增强阶段增加 HTML、原始文件和 `result.zip`
 
 MVP 暂不包含：
 
@@ -71,7 +78,7 @@ MVP 暂不包含：
 - 多任务并发队列
 - WebSocket / SSE
 - 向量数据库、RAG 和翻译记忆库
-- DOCX、HTML 和 PDF 导出
+- DOCX 和翻译 PDF 导出；HTML 阅读输出已进入 MVP 输出增强 TODO
 - 完整小说翻译模式
 
 ## 技术栈
@@ -207,6 +214,7 @@ longdoc-translator-agent/
 - [接口说明](docs/接口说明.md)
 - [测试计划](docs/测试计划.md)
 - [前端 UI 与交互规范](docs/前端UI设计.md)
+- [文档结构、混合切分与输出策略](docs/文档结构与输出策略.md)
 
 ## License
 

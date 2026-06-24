@@ -1,6 +1,6 @@
 # LongDoc Translator Agent 前端 UI 与交互规范
 
-版本：v0.2
+版本：v0.3
 状态：MVP 实现规范
 适用范围：论文翻译模式
 依据：`需求文档.md`、`架构设计.md`、`接口说明.md`、`数据库设计.md`、`测试计划.md`
@@ -29,7 +29,7 @@ MVP 必须突出：
 - 术语确认这一 Human-in-the-Loop 中断点。
 - chunk 级处理状态和论文结构风险。
 - 已完成结果不丢失的失败恢复能力。
-- 三种 Markdown 结果的集中交付。
+- 可编辑 Markdown、直接阅读 HTML、原始文件与结果资源包的分层交付。
 
 本文档描述目标 MVP，不代表所有接口和页面已经实现。前端开发必须以接口实际可用情况分模块推进，不使用伪造数据掩盖缺失能力。
 
@@ -63,7 +63,7 @@ MVP 必须突出：
 - `PARSED` 表示解析与切块已经完成，不能用于表示“正在识别章节”。处理中页面应同时展示 `status` 与 `currentStage`。
 - chunk 状态使用 `PENDING / TRANSLATING / COMPLETED / FAILED / SKIPPED`，不存在 `CANCELLED` chunk。
 - 术语确认请求只提交 `termId / confirmedTranslation / note`，不回传 `source` 或 `suggested`。
-- Chunk 详情只能使用接口提供的 120 字预览；完整内容后续需要新增接口，MVP 不假装已支持。
+- Chunk 详情当前只能使用接口提供的 120 字预览；完整结构预览需要后续接口。表格预览不得把原始 pipe 文本当作最终视觉效果。
 
 ---
 
@@ -404,6 +404,14 @@ ocrMode=auto
 
 MVP 操作仅为“查看预览”。点击后可打开右侧 Drawer，展示接口已有预览、状态和风险。不要命名为“查看完整原文/译文”，不要提供逐 chunk 重试或日志按钮。
 
+结构预览增强后：
+
+- `TABLE` 优先渲染 GFM/HTML 结果，不向普通用户直接展示参差不齐的 pipe 源码。
+- 低置信度表格展示原始截图、caption、页码和“建议复核”。
+- `FORMULA` 使用 KaTeX/MathJax 渲染，失败时展示 LaTeX 和原始截图。
+- `PICTURE` 展示原图与 caption。
+- 用户可切换“渲染结果 / 原始结构文本”，但默认是渲染结果。
+
 任务详情每 2 秒、chunk 列表每 3 秒轮询，两个请求错开；终态停止。更新列表时保持滚动位置和已打开 Drawer，不整页闪烁。
 
 ---
@@ -440,13 +448,19 @@ POST /api/jobs/{jobId}/resume
 
 对应 `COMPLETED`。
 
-展示三个输出行或并列卡片：
+基础阶段展示三个 Markdown 输出；输出增强后根据 `GET /api/jobs/{jobId}/outputs` 返回的可用清单动态展示：
 
-| 类型 | 文件 | 说明 |
-| --- | --- | --- |
-| `bilingual` | `bilingual.md` | 原文与译文对照，用于校对 |
-| `translated` | `translated.md` | 保留结构的中文译文 |
-| `report` | `report.md` | 术语、风险、耗时和调用指标 |
+| 优先级 | 类型 | 文件 | 说明 |
+| --- | --- | --- | --- |
+| 推荐 | `bilingual_html` | `bilingual.html` | 双语直接阅读，正确渲染表格和公式 |
+| 推荐 | `translated_html` | `translated.html` | 中文连续阅读 |
+| 推荐 | `package` | `result.zip` | 包含原始文件、HTML、Markdown 和全部资产 |
+| 次级 | `bilingual` | `bilingual.md` | 可编辑双语交换格式 |
+| 次级 | `translated` | `translated.md` | 可编辑中文交换格式 |
+| 次级 | `report` | `report.md` | 术语、风险、耗时和调用指标 |
+| 追溯 | `source` | 原始文件 | 原始 PDF/MD/TXT，不是翻译文件 |
+
+界面应明确：Markdown 需要兼容阅读器才能正确渲染表格；复杂论文优先推荐 HTML 或结果包。
 
 下载按钮使用 Download 图标并显示明确文件名。文件请求失败：
 
@@ -591,7 +605,7 @@ frontend/src/
 
 ### 完成与取消
 
-- [ ] 三个 Markdown 输出均可下载。
+- [ ] 三个基础 Markdown 均可下载；增强后 HTML、原始文件和结果包按输出清单展示。
 - [ ] 下载错误可以重试。
 - [ ] 取消说明符合 chunk 边界停止语义。
 - [ ] 已取消任务不可恢复。
@@ -616,9 +630,63 @@ frontend/src/
 - 完整 chunk 正文详情接口。
 - 逐 chunk 手动重试和日志查看。
 - 风险片段逐条审批。
-- DOCX、HTML、PDF 导出。
+- DOCX、双语批注 PDF 和重排中文版 PDF；HTML 已进入输出增强范围。
 - 复杂表格在线重建。
 - 小说模式工作台。
 - Token 费用预算和工作流事件时间线。
 
 这些能力只有在需求、接口和后端实现同步进入对应版本后，才能增加可操作入口。
+
+---
+
+## 19. 结构化内容阅读体验
+
+### 19.1 表格
+
+用户界面不以 Markdown 源码中的 `|` 是否对齐作为表格质量标准。
+
+展示优先级：
+
+1. 可交互或静态 HTML table。
+2. 简单表格的浏览器原生渲染结果。
+3. 低置信度时的原始截图。
+4. 原始 pipe/JSON 只放在“结构详情”中供调试。
+
+表格区域需要：
+
+- 横向滚动，不压缩到无法阅读。
+- sticky header（长表可选）。
+- caption、来源页码和风险提示。
+- 对重复 header/caption 做最终渲染去重。
+- 不把图片 fallback 描述成已完成结构重建。
+
+### 19.2 公式
+
+- HTML 预览使用 KaTeX 或 MathJax。
+- 渲染失败时显示原始 LaTeX，并允许查看公式截图。
+- 公式编号与正文引用可见。
+- 不提供普通文本输入框让用户误改公式结构。
+
+### 19.3 原始 PDF
+
+任务详情和完成页可以提供“查看/下载原始文件”。
+
+- 原始 PDF 在新标签或浏览器 PDF Viewer 打开。
+- 文案必须写“原始 PDF”，不能写“翻译 PDF”。
+- 后续双语批注 PDF 上线后使用独立输出类型和说明。
+
+### 19.4 输出能力渐进开放
+
+前端通过输出清单决定按钮，不假设所有任务都有 HTML 或 package：
+
+- 旧任务只有 Markdown 时正常显示。
+- 新任务生成 HTML 后将 HTML 标为推荐。
+- package 未生成时不显示假按钮。
+- 相对资产缺失时展示明确错误，不回退成破损图片。
+
+### 19.5 HTML 安全
+
+- 前端不使用未清洗的 `dangerouslySetInnerHTML` 渲染源文档内容。
+- HTML 预览只加载后端 Render Service 生成并清洗后的文件。
+- 新标签打开独立 HTML 时使用安全响应头，不允许源文档脚本执行。
+- 外部链接明确标识；本地图片和公式资源失败时显示占位与错误信息。
