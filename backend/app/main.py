@@ -1,10 +1,11 @@
-﻿from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 
 from app.api.routes_health import router as health_router
+from app.api.routes_jobs import router as jobs_router
 from app.core.errors import (
     AppError,
     app_error_handler,
@@ -30,6 +31,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.include_router(health_router)
+    app.include_router(jobs_router)
     app.add_exception_handler(AppError, app_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.add_exception_handler(Exception, unhandled_error_handler)

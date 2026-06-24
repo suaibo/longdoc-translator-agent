@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     app_port: int = 8000
     database_url: str = "sqlite:///./storage/app.db"
     storage_root: Path = Field(default=Path("./storage"))
+    max_upload_bytes: int = 50 * 1024 * 1024
+    upload_read_size: int = 1024 * 1024
 
     llm_base_url: str = "https://api.deepseek.com"
     llm_api_key: str = ""
