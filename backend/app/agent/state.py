@@ -10,3 +10,5 @@ class TranslationState(TypedDict, total=False):
     translation_done: bool
     cancelled: bool
     review_result: dict[str, Any] | None
+    risk_review_result: dict[str, Any] | None
+    chapter_review_result: dict[str, Any] | None

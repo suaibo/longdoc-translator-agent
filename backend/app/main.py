@@ -11,6 +11,7 @@ from app.api.routes_events import router as events_router
 from app.api.routes_health import router as health_router
 from app.api.routes_jobs import router as jobs_router
 from app.api.routes_outputs import router as outputs_router
+from app.api.routes_reviews import router as reviews_router
 from app.api.routes_terms import router as terms_router
 from app.core.config import get_settings
 from app.core.errors import (
@@ -48,6 +49,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(jobs_router)
     app.include_router(events_router)
+    app.include_router(reviews_router)
     app.include_router(terms_router)
     app.include_router(chunks_router)
     app.include_router(outputs_router)

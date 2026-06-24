@@ -19,6 +19,8 @@ class JobResponse(BaseModel):
     total_chunks: int
     completed_chunks: int
     progress_percent: float
+    require_high_risk_review: bool
+    require_chapter_review: bool
     error_code: str | None
     error_message: str | None
     created_at: datetime

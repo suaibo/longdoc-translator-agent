@@ -16,7 +16,8 @@ class TranslationJob(Base):
             text("(1)"),
             unique=True,
             postgresql_where=text(
-                "status IN ('UPLOADED', 'PARSED', 'WAITING_TERM_REVIEW', 'TRANSLATING')"
+                "status IN ('UPLOADED', 'PARSED', 'WAITING_TERM_REVIEW', "
+                "'WAITING_RISK_REVIEW', 'WAITING_CHAPTER_REVIEW', 'TRANSLATING')"
             ),
         ),
     )
@@ -42,6 +43,8 @@ class TranslationJob(Base):
     retry_count: Mapped[int] = mapped_column(default=0)
     max_token_budget: Mapped[int] = mapped_column(default=2_000_000)
     max_cost_usd: Mapped[float] = mapped_column(default=0)
+    require_high_risk_review: Mapped[bool] = mapped_column(default=False)
+    require_chapter_review: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -59,4 +62,7 @@ class TranslationJob(Base):
     risks = relationship("RiskItem", back_populates="job", cascade="all, delete-orphan")
     events = relationship(
         "WorkflowEvent", back_populates="job", cascade="all, delete-orphan"
+    )
+    reviews = relationship(
+        "ReviewRequest", back_populates="job", cascade="all, delete-orphan"
     )

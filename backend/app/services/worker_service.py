@@ -72,8 +72,10 @@ class WorkerService:
                 raise AppError(ErrorCode.INVALID_STATE, status_code=409)
         self.enqueue(job_id, payload)
 
-    def resume_review(self, job_id: str) -> None:
-        self.enqueue(job_id, {"confirmed": True})
+    def resume_review(
+        self, job_id: str, payload: dict[str, Any] | None = None
+    ) -> None:
+        self.enqueue(job_id, payload or {"confirmed": True})
 
     def shutdown(self) -> None:
         self.executor.shutdown(wait=True, cancel_futures=False)

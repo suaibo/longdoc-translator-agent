@@ -32,8 +32,20 @@ async def create_job(
     file: Annotated[UploadFile, File()],
     mode: Annotated[str, Form()] = "paper",
     ocr_mode: Annotated[str, Form(alias="ocrMode")] = "auto",
+    require_high_risk_review: Annotated[
+        bool, Form(alias="requireHighRiskReview")
+    ] = False,
+    require_chapter_review: Annotated[
+        bool, Form(alias="requireChapterReview")
+    ] = False,
 ) -> dict[str, Any]:
-    job = await service.create_job(file, mode, ocr_mode)
+    job = await service.create_job(
+        file,
+        mode,
+        ocr_mode,
+        require_high_risk_review,
+        require_chapter_review,
+    )
     worker.enqueue(job.job_id)
     data = JobCreatedResponse(job_id=job.job_id).model_dump(by_alias=True)
     return success(data)
@@ -87,6 +99,8 @@ def serialize_job(job: TranslationJob) -> dict[str, Any]:
             "total_chunks": job.total_chunks,
             "completed_chunks": job.completed_chunks,
             "progress_percent": job.progress_percent,
+            "require_high_risk_review": job.require_high_risk_review,
+            "require_chapter_review": job.require_chapter_review,
             "error_code": job.error_code,
             "error_message": job.error_message,
             "created_at": job.created_at,

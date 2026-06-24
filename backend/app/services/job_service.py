@@ -19,6 +19,8 @@ ACTIVE_STATUSES = {
     JobStatus.UPLOADED.value,
     JobStatus.PARSED.value,
     JobStatus.WAITING_TERM_REVIEW.value,
+    JobStatus.WAITING_RISK_REVIEW.value,
+    JobStatus.WAITING_CHAPTER_REVIEW.value,
     JobStatus.TRANSLATING.value,
 }
 
@@ -30,7 +32,12 @@ class JobService:
         self.settings = get_settings()
 
     async def create_job(
-        self, upload: UploadFile, mode: str, ocr_mode: str = "auto"
+        self,
+        upload: UploadFile,
+        mode: str,
+        ocr_mode: str = "auto",
+        require_high_risk_review: bool = False,
+        require_chapter_review: bool = False,
     ) -> TranslationJob:
         original_filename, extension = self._validate_request(
             upload.filename, mode, ocr_mode
@@ -39,7 +46,13 @@ class JobService:
         try:
             await self._save_upload(upload, stored_path)
             return self._persist_job(
-                job_id, original_filename, stored_path, mode, ocr_mode
+                job_id,
+                original_filename,
+                stored_path,
+                mode,
+                ocr_mode,
+                require_high_risk_review,
+                require_chapter_review,
             )
         except Exception:
             self.db.rollback()
@@ -54,6 +67,8 @@ class JobService:
         original_filename: str,
         mode: str = "paper",
         ocr_mode: str = "auto",
+        require_high_risk_review: bool = False,
+        require_chapter_review: bool = False,
     ) -> TranslationJob:
         """Create a job from a Gradio temporary file without coupling UI to FastAPI."""
         original_filename, extension = self._validate_request(
@@ -63,7 +78,13 @@ class JobService:
         try:
             self._copy_upload(source, stored_path)
             return self._persist_job(
-                job_id, original_filename, stored_path, mode, ocr_mode
+                job_id,
+                original_filename,
+                stored_path,
+                mode,
+                ocr_mode,
+                require_high_risk_review,
+                require_chapter_review,
             )
         except Exception:
             self.db.rollback()
@@ -136,6 +157,8 @@ class JobService:
         stored_path: Path,
         mode: str,
         ocr_mode: str,
+        require_high_risk_review: bool,
+        require_chapter_review: bool,
     ) -> TranslationJob:
         now = datetime.now(timezone.utc)
         job = TranslationJob(
@@ -152,6 +175,8 @@ class JobService:
             prompt_version=self.settings.prompt_version,
             max_token_budget=self.settings.job_max_token_budget,
             max_cost_usd=self.settings.job_max_cost_usd,
+            require_high_risk_review=require_high_risk_review,
+            require_chapter_review=require_chapter_review,
             status=JobStatus.UPLOADED.value,
             current_stage="uploaded",
             created_at=now,

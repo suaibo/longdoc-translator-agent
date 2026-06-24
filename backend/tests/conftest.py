@@ -88,5 +88,5 @@ class NoopWorker:
     def resume(self, job_id: str) -> None:
         return None
 
-    def resume_review(self, job_id: str) -> None:
+    def resume_review(self, job_id: str, payload=None) -> None:
         return None

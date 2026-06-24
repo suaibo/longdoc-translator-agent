@@ -27,12 +27,13 @@ def test_gradio_handler_creates_and_reads_job(
     assert job_id is not None
     assert job_id in message
     result = handlers.refresh_dashboard(job_id)
-    summary, terms, chunks, risks, events = result[:5]
-    outputs = result[5:]
+    summary, terms, chunks, risks, events, reviews = result[:6]
+    outputs = result[6:]
     assert "UPLOADED" in summary
     assert terms == []
     assert chunks == []
     assert risks == []
     assert events == []
+    assert reviews == []
     assert all(output is None for output in outputs[:-1])
     assert outputs[-1] is not None

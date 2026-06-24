@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.models.document_chunk import DocumentChunk
 from app.models.risk_item import RiskItem
+from app.models.review_request import ReviewRequest
 from app.models.term_entry import TermEntry
 from app.models.translation_job import TranslationJob
 from app.services.event_service import EventService
@@ -190,3 +191,40 @@ def test_workflow_events_endpoint(
     assert event["status"] == "FAILED"
     assert event["elapsedMs"] == 1200
     assert event["metadata"] == {"chunkIndex": 2}
+
+
+def test_review_endpoint_approves_pending_request(
+    client: TestClient, db_session: Session, tmp_path: Path
+) -> None:
+    job = add_job(
+        db_session,
+        tmp_path,
+        job_id="job_review_api",
+        status="WAITING_CHAPTER_REVIEW",
+    )
+    now = datetime.now(timezone.utc)
+    db_session.add(
+        ReviewRequest(
+            review_id="review_api",
+            job_id=job.job_id,
+            review_type="CHAPTER",
+            subject_id="Methods",
+            status="PENDING",
+            payload_json={"sectionPath": ["Methods"]},
+            created_at=now,
+        )
+    )
+    db_session.commit()
+
+    listed = client.get(f"/api/jobs/{job.job_id}/reviews")
+    approved = client.post(
+        f"/api/jobs/{job.job_id}/reviews/review_api/approve",
+        json={"note": "checked"},
+    )
+
+    assert listed.status_code == 200
+    assert listed.json()["data"][0]["reviewType"] == "CHAPTER"
+    assert approved.status_code == 200
+    assert approved.json()["data"]["status"] == "APPROVED"
+    db_session.refresh(job)
+    assert job.status == "TRANSLATING"

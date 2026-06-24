@@ -10,6 +10,7 @@ from app.models.translation_job import TranslationJob
 from app.services.event_service import EventService
 from app.schemas.term import TermConfirmation
 from app.services.job_service import JobService
+from app.services.review_service import ReviewService
 from app.services.term_service import TermService
 from app.storage.paths import StoragePaths
 from tests.fakes import FakeLLM
@@ -45,7 +46,11 @@ def test_langgraph_interrupt_resume_completes_full_workflow(
             db.execute(delete(TranslationJob))
             db.commit()
             job = JobService(db, paths).create_job_from_path(
-                source, source.name, "paper", "auto"
+                source,
+                source.name,
+                "paper",
+                "auto",
+                require_chapter_review=True,
             )
             job_id = job.job_id
 
@@ -69,6 +74,15 @@ def test_langgraph_interrupt_resume_completes_full_workflow(
             )
 
         runner.run(job_id, {"confirmed": True})
+
+        with factory() as db:
+            waiting = db.get(TranslationJob, job_id)
+            assert waiting is not None
+            assert waiting.status == "WAITING_CHAPTER_REVIEW"
+            review = ReviewService(db).list_reviews(job_id)[0]
+            ReviewService(db).approve(job_id, review.review_id, "integration checked")
+
+        runner.run(job_id, {"approved": True})
 
         with factory() as db:
             completed = db.get(TranslationJob, job_id)

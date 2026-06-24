@@ -15,6 +15,7 @@ from app.models.term_entry import TermEntry
 from app.schemas.term import TermConfirmation
 from app.services.event_service import EventService
 from app.services.job_service import JobService
+from app.services.review_service import ReviewService
 from app.services.term_service import TermService
 from app.services.worker_service import get_worker
 from app.storage.paths import get_storage_paths
@@ -30,7 +31,11 @@ def session_scope() -> Generator[Session]:
 
 
 def create_job(
-    file_path: str | None, mode: str, ocr_mode: str = "auto"
+    file_path: str | None,
+    mode: str,
+    ocr_mode: str = "auto",
+    require_high_risk_review: bool = False,
+    require_chapter_review: bool = False,
 ) -> tuple[str, Any, str | None]:
     if not file_path:
         return "请先选择 PDF、Markdown 或 TXT 文件。", gr.update(), None
@@ -39,7 +44,12 @@ def create_job(
     try:
         with session_scope() as db:
             job = JobService(db, get_storage_paths()).create_job_from_path(
-                source, source.name, mode, ocr_mode
+                source,
+                source.name,
+                mode,
+                ocr_mode,
+                require_high_risk_review,
+                require_chapter_review,
             )
             get_worker().enqueue(job.job_id)
             choices = _job_choices(JobService(db, get_storage_paths()).list_jobs())
@@ -113,6 +123,29 @@ def confirm_terms(job_id: str | None, rows: list[list[Any]]) -> str:
         return f"确认术语失败：{exc}"
 
 
+def approve_pending_review(job_id: str | None, note: str) -> str:
+    if not job_id:
+        return "请先选择任务。"
+    try:
+        with session_scope() as db:
+            reviews = ReviewService(db).list_reviews(job_id)
+            pending = next(
+                (review for review in reviews if review.status == "PENDING"),
+                None,
+            )
+            if pending is None:
+                return "当前没有待处理审核。"
+            ReviewService(db).approve(job_id, pending.review_id, note or None)
+        get_worker().resume_review(
+            job_id, {"approved": True, "reviewId": pending.review_id}
+        )
+        return f"审核 `{pending.review_id}` 已通过，工作流继续。"
+    except AppError as exc:
+        return exc.message
+    except Exception as exc:
+        return f"审核失败：{exc}"
+
+
 def ocr_visibility(file_path: str | None) -> Any:
     return gr.update(visible=bool(file_path and Path(file_path).suffix.lower() == ".pdf"))
 
@@ -121,6 +154,7 @@ def refresh_dashboard(
     job_id: str | None,
 ) -> tuple[
     str,
+    list[list[Any]],
     list[list[Any]],
     list[list[Any]],
     list[list[Any]],
@@ -136,6 +170,7 @@ def refresh_dashboard(
     if not job_id:
         return (
             "请选择任务。",
+            [],
             [],
             [],
             [],
@@ -175,6 +210,7 @@ def refresh_dashboard(
                 )
             )
             events = EventService(db).list_events(job_id)
+            reviews = ReviewService(db).list_reviews(job_id)
             outputs = get_storage_paths()
             return (
                 _job_markdown(job),
@@ -219,6 +255,16 @@ def refresh_dashboard(
                     ]
                     for event in events
                 ],
+                [
+                    [
+                        review.review_id,
+                        review.review_type,
+                        review.subject_id,
+                        review.status,
+                        review.resolution_note or "",
+                    ]
+                    for review in reviews
+                ],
                 _existing_output(outputs.output_file(job_id, "bilingual")),
                 _existing_output(outputs.output_file(job_id, "translated")),
                 _existing_output(outputs.output_file(job_id, "report")),
@@ -234,6 +280,7 @@ def refresh_dashboard(
             [],
             [],
             [],
+            [],
             None,
             None,
             None,
@@ -245,6 +292,7 @@ def refresh_dashboard(
     except Exception as exc:
         return (
             f"刷新失败：{exc}",
+            [],
             [],
             [],
             [],

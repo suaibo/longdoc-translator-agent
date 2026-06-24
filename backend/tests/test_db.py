@@ -34,6 +34,7 @@ def test_alembic_creates_core_tables(db_session: Session) -> None:
         "translation_metric",
         "risk_item",
         "workflow_event",
+        "review_request",
         "alembic_version",
         "checkpoints",
         "checkpoint_blobs",

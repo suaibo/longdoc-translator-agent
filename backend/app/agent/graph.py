@@ -113,6 +113,20 @@ def build_workflow(checkpointer=None):
         "mark_risks", _instrument_node("mark_risks", nodes.mark_risks)
     )
     builder.add_node(
+        "interrupt_for_high_risk_review",
+        _instrument_node(
+            "interrupt_for_high_risk_review",
+            nodes.interrupt_for_high_risk_review,
+        ),
+    )
+    builder.add_node(
+        "interrupt_for_chapter_review",
+        _instrument_node(
+            "interrupt_for_chapter_review",
+            nodes.interrupt_for_chapter_review,
+        ),
+    )
+    builder.add_node(
         "save_checkpoint", _instrument_node("save_checkpoint", nodes.save_checkpoint)
     )
     builder.add_node(
@@ -139,7 +153,11 @@ def build_workflow(checkpointer=None):
         },
     )
     builder.add_edge("summarize_chunk_context", "mark_risks")
-    builder.add_edge("mark_risks", "save_checkpoint")
+    builder.add_edge("mark_risks", "interrupt_for_high_risk_review")
+    builder.add_edge(
+        "interrupt_for_high_risk_review", "interrupt_for_chapter_review"
+    )
+    builder.add_edge("interrupt_for_chapter_review", "save_checkpoint")
     builder.add_edge("save_checkpoint", "translate_chunk")
     builder.add_edge("generate_outputs", "generate_report")
     builder.add_edge("generate_report", END)

@@ -62,6 +62,14 @@ def create_gradio_app() -> gr.Blocks:
                     value="auto",
                     visible=False,
                 )
+                require_high_risk_review = gr.Checkbox(
+                    label="高风险 chunk 需要人工确认",
+                    value=False,
+                )
+                require_chapter_review = gr.Checkbox(
+                    label="每章结束需要人工确认",
+                    value=False,
+                )
                 create_button = gr.Button("创建任务", variant="primary")
 
             with gr.Tab("任务概览"):
@@ -106,6 +114,19 @@ def create_gradio_app() -> gr.Blocks:
                     label="节点执行记录",
                 )
 
+            with gr.Tab("人工审核"):
+                reviews = gr.Dataframe(
+                    headers=["审核 ID", "类型", "对象", "状态", "处理备注"],
+                    datatype=["str", "str", "str", "str", "str"],
+                    interactive=False,
+                    label="审核请求",
+                )
+                review_note = gr.Textbox(label="审核备注", lines=2)
+                approve_review_button = gr.Button(
+                    "批准当前待审核项并继续",
+                    variant="primary",
+                )
+
             with gr.Tab("输出"):
                 bilingual = gr.File(label="双语 Markdown", interactive=False)
                 translated = gr.File(label="中文 Markdown", interactive=False)
@@ -122,6 +143,7 @@ def create_gradio_app() -> gr.Blocks:
             chunks,
             risks,
             events,
+            reviews,
             bilingual,
             translated,
             report,
@@ -158,7 +180,13 @@ def create_gradio_app() -> gr.Blocks:
         )
         create_button.click(
             handlers.create_job,
-            inputs=[upload, mode, ocr_mode],
+            inputs=[
+                upload,
+                mode,
+                ocr_mode,
+                require_high_risk_review,
+                require_chapter_review,
+            ],
             outputs=[operation_status, job_selector, selected_job],
         ).then(
             handlers.refresh_dashboard,
@@ -186,6 +214,15 @@ def create_gradio_app() -> gr.Blocks:
         confirm_terms_button.click(
             handlers.confirm_terms,
             inputs=[selected_job, terms],
+            outputs=operation_status,
+        ).then(
+            handlers.refresh_dashboard,
+            inputs=selected_job,
+            outputs=dashboard_outputs,
+        )
+        approve_review_button.click(
+            handlers.approve_pending_review,
+            inputs=[selected_job, review_note],
             outputs=operation_status,
         ).then(
             handlers.refresh_dashboard,

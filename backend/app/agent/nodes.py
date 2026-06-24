@@ -10,13 +10,20 @@ from app.core.config import get_settings
 from app.core.errors import AppError, ErrorCode
 from app.db.session import SessionLocal
 from app.models.document_chunk import DocumentChunk
-from app.models.enums import ChunkStatus, JobStatus
+from app.models.enums import (
+    ChunkStatus,
+    JobStatus,
+    ReviewStatus,
+    ReviewType,
+)
+from app.models.risk_item import RiskItem
 from app.models.translation_job import TranslationJob
 from app.services.checkpoint_service import CheckpointService
 from app.services.chunk_service import ChunkService
 from app.services.document_ir_service import DocumentIRService
 from app.services.output_service import OutputService
 from app.services.parser_service import ParserService
+from app.services.review_service import ReviewService
 from app.services.term_service import TermService
 from app.services.translation_service import TranslationService
 from app.storage.paths import get_storage_paths
@@ -189,6 +196,89 @@ class WorkflowNodes:
             TranslationService(db).mark_quality_risks(job.job_id, chunk)
             return {}
 
+    def interrupt_for_high_risk_review(
+        self, state: TranslationState
+    ) -> dict[str, Any]:
+        with SessionLocal() as db:
+            job = self._job(db, state["job_id"])
+            if not job.require_high_risk_review:
+                return {}
+            chunk = db.get(DocumentChunk, state["current_chunk_id"])
+            if chunk is None:
+                raise AppError(
+                    ErrorCode.INVALID_STATE, "当前 chunk 不存在", status_code=409
+                )
+            risks = list(
+                db.scalars(
+                    select(RiskItem).where(
+                        RiskItem.chunk_id == chunk.chunk_id,
+                        RiskItem.severity == "HIGH",
+                    )
+                )
+            )
+            if not risks:
+                return {}
+            review = ReviewService(db).get_or_create(
+                job.job_id,
+                ReviewType.HIGH_RISK_CHUNK,
+                chunk.chunk_id,
+                {
+                    "chunkIndex": chunk.chunk_index,
+                    "sectionPath": chunk.section_path,
+                    "risks": [
+                        {"type": risk.risk_type, "message": risk.message}
+                        for risk in risks
+                    ],
+                },
+            )
+            if review.status == ReviewStatus.APPROVED.value:
+                return {}
+            self._wait_for_review(
+                db,
+                job,
+                review.review_id,
+                JobStatus.WAITING_RISK_REVIEW,
+                "interrupt_for_high_risk_review",
+            )
+        return {"risk_review_result": {"approved": True}}
+
+    def interrupt_for_chapter_review(
+        self, state: TranslationState
+    ) -> dict[str, Any]:
+        with SessionLocal() as db:
+            job = self._job(db, state["job_id"])
+            if not job.require_chapter_review:
+                return {}
+            chunk = db.get(DocumentChunk, state["current_chunk_id"])
+            if chunk is None:
+                raise AppError(
+                    ErrorCode.INVALID_STATE, "当前 chunk 不存在", status_code=409
+                )
+            next_chunk = TranslationService(db).next_pending(job.job_id)
+            if next_chunk and next_chunk.section_path == chunk.section_path:
+                return {}
+            section_path = chunk.section_path or [chunk.section_title or "未命名章节"]
+            subject_id = "/".join(section_path)
+            review = ReviewService(db).get_or_create(
+                job.job_id,
+                ReviewType.CHAPTER,
+                subject_id,
+                {
+                    "sectionPath": section_path,
+                    "lastChunkIndex": chunk.chunk_index,
+                },
+            )
+            if review.status == ReviewStatus.APPROVED.value:
+                return {}
+            self._wait_for_review(
+                db,
+                job,
+                review.review_id,
+                JobStatus.WAITING_CHAPTER_REVIEW,
+                "interrupt_for_chapter_review",
+            )
+        return {"chapter_review_result": {"approved": True}}
+
     def save_checkpoint(self, state: TranslationState) -> dict[str, Any]:
         with SessionLocal() as db:
             CheckpointService(db).save(
@@ -255,3 +345,24 @@ class WorkflowNodes:
                 f"任务工作流版本 {job.workflow_version} 与当前版本 {current} 不兼容",
                 status_code=409,
             )
+
+    @staticmethod
+    def _wait_for_review(
+        db: Any,
+        job: TranslationJob,
+        review_id: str,
+        status: JobStatus,
+        stage: str,
+    ) -> None:
+        job.status = status.value
+        job.current_stage = stage
+        job.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        interrupt(
+            {
+                "jobId": job.job_id,
+                "reviewId": review_id,
+                "reviewType": status.value,
+                "message": "请在审核页确认后继续",
+            }
+        )
