@@ -1,6 +1,7 @@
 import json
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from openai import (
@@ -16,6 +17,7 @@ from pydantic import ValidationError
 
 from app.agent.prompts import (
     QUALITY_SYSTEM,
+    REVISION_SYSTEM,
     SUMMARY_SYSTEM,
     TERM_EXTRACTION_SYSTEM,
     TRANSLATION_SYSTEM,
@@ -33,10 +35,18 @@ RETRYABLE_ERRORS = (
 )
 
 
+@dataclass(frozen=True)
+class LLMEndpoint:
+    provider: str
+    client: Any
+    default_model: str
+
+
 class LLMService:
     def __init__(
         self,
         client: Any | None = None,
+        fallback_client: Any | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.settings = get_settings()
@@ -47,13 +57,36 @@ class LLMService:
                     "未配置 LLM_API_KEY，无法调用 DeepSeek",
                     status_code=500,
                 )
-            client = OpenAI(
-                api_key=self.settings.llm_api_key,
-                base_url=self.settings.llm_base_url,
-                timeout=self.settings.llm_timeout_seconds,
-                max_retries=0,
+            client = self._client(
+                self.settings.llm_api_key,
+                self.settings.llm_base_url,
             )
         self.client = client
+        self.endpoints = [
+            LLMEndpoint("deepseek", client, self.settings.llm_model)
+        ]
+        if fallback_client is not None:
+            self.endpoints.append(
+                LLMEndpoint(
+                    "fallback",
+                    fallback_client,
+                    self.settings.llm_fallback_model or self.settings.llm_model,
+                )
+            )
+        elif (
+            self.settings.llm_fallback_api_key
+            and self.settings.llm_fallback_base_url
+        ):
+            self.endpoints.append(
+                LLMEndpoint(
+                    "fallback",
+                    self._client(
+                        self.settings.llm_fallback_api_key,
+                        self.settings.llm_fallback_base_url,
+                    ),
+                    self.settings.llm_fallback_model or self.settings.llm_model,
+                )
+            )
         self.sleep = sleep
 
     def extract_terms(self, text: str) -> tuple[list[TermSuggestion], LLMResult]:
@@ -63,6 +96,7 @@ class LLMService:
                 {"role": "user", "content": text},
             ],
             json_output=True,
+            task="terms",
         )
         try:
             parsed = TermExtractionResult.model_validate_json(result.content)
@@ -95,6 +129,8 @@ class LLMService:
                     "content": json.dumps(context, ensure_ascii=False),
                 },
             ]
+            ,
+            task="translation",
         )
 
     def summarize_chunk(self, original: str, translated: str) -> LLMResult:
@@ -109,6 +145,8 @@ class LLMService:
                     ),
                 },
             ]
+            ,
+            task="summary",
         )
 
     def check_quality(self, original: str, translated: str) -> tuple[QualityResult, LLMResult]:
@@ -124,6 +162,7 @@ class LLMService:
                 },
             ],
             json_output=True,
+            task="quality",
         )
         try:
             return QualityResult.model_validate_json(result.content), result
@@ -134,44 +173,110 @@ class LLMService:
                 status_code=502,
             ) from exc
 
+    def revise_translation(
+        self,
+        original: str,
+        translated: str,
+        issues: list[dict[str, str]],
+        terms: dict[str, str],
+    ) -> LLMResult:
+        return self._chat(
+            [
+                {"role": "system", "content": REVISION_SYSTEM},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "source": original,
+                            "translation": translated,
+                            "issues": issues,
+                            "confirmedTerms": terms,
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+            task="translation",
+        )
+
     def _chat(
-        self, messages: list[dict[str, str]], json_output: bool = False
+        self,
+        messages: list[dict[str, str]],
+        json_output: bool = False,
+        task: str = "translation",
     ) -> LLMResult:
         last_error: Exception | None = None
         started = time.perf_counter()
-        for attempt in range(self.settings.llm_max_retries + 1):
-            try:
-                response = self.client.chat.completions.create(
-                    model=self.settings.llm_model,
-                    messages=messages,
-                    max_tokens=self.settings.llm_max_output_tokens,
-                    response_format={"type": "json_object"} if json_output else None,
-                )
-                content = response.choices[0].message.content or ""
-                if not content.strip():
-                    raise ValueError("DeepSeek returned empty content")
-                usage = getattr(response, "usage", None)
-                return LLMResult(
-                    content=content.strip(),
-                    usage=LLMUsage(
-                        prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
-                        completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
-                        total_tokens=getattr(usage, "total_tokens", 0) or 0,
-                    ),
-                    elapsed_ms=int((time.perf_counter() - started) * 1000),
-                    retry_count=attempt,
-                )
-            except RETRYABLE_ERRORS as exc:
-                last_error = exc
-                if attempt >= self.settings.llm_max_retries:
+        retries = 0
+        for endpoint_index, endpoint in enumerate(self.endpoints):
+            model = self._model_for(task, endpoint)
+            for attempt in range(self.settings.llm_max_retries + 1):
+                try:
+                    response = endpoint.client.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                        max_tokens=self.settings.llm_max_output_tokens,
+                        response_format=(
+                            {"type": "json_object"} if json_output else None
+                        ),
+                    )
+                    content = response.choices[0].message.content or ""
+                    if not content.strip():
+                        raise ValueError("LLM returned empty content")
+                    usage = getattr(response, "usage", None)
+                    return LLMResult(
+                        content=content.strip(),
+                        provider=endpoint.provider,
+                        model=model,
+                        usage=LLMUsage(
+                            prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+                            completion_tokens=getattr(
+                                usage, "completion_tokens", 0
+                            )
+                            or 0,
+                            total_tokens=getattr(usage, "total_tokens", 0) or 0,
+                        ),
+                        elapsed_ms=int((time.perf_counter() - started) * 1000),
+                        retry_count=retries,
+                    )
+                except RETRYABLE_ERRORS as exc:
+                    last_error = exc
+                    if attempt >= self.settings.llm_max_retries:
+                        break
+                    retries += 1
+                    self.sleep(
+                        self.settings.llm_retry_base_seconds * (2**attempt)
+                    )
+                except (BadRequestError, APIError, ValueError) as exc:
+                    last_error = exc
+                    # Invalid requests and invalid content are deterministic;
+                    # switching providers would hide a prompt/schema defect.
+                    endpoint_index = len(self.endpoints)
                     break
-                self.sleep(self.settings.llm_retry_base_seconds * (2**attempt))
-            except (BadRequestError, APIError, ValueError) as exc:
-                last_error = exc
+            if endpoint_index >= len(self.endpoints):
                 break
 
         raise AppError(
             ErrorCode.LLM_CALL_FAILED,
-            f"DeepSeek 调用失败: {last_error}",
+            f"LLM 调用失败: {last_error}",
             status_code=502,
         ) from last_error
+
+    def _model_for(self, task: str, endpoint: LLMEndpoint) -> str:
+        if endpoint.provider == "fallback":
+            return endpoint.default_model
+        routed = {
+            "terms": self.settings.llm_term_model,
+            "translation": self.settings.llm_translation_model,
+            "summary": self.settings.llm_summary_model,
+            "quality": self.settings.llm_quality_model,
+        }.get(task, "")
+        return routed or endpoint.default_model
+
+    def _client(self, api_key: str, base_url: str) -> OpenAI:
+        return OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=self.settings.llm_timeout_seconds,
+            max_retries=0,
+        )

@@ -38,7 +38,6 @@ class TermService:
             MetricService(self.db).record(
                 job_id,
                 result,
-                model=llm.settings.llm_model,
             )
             for suggestion in suggestions:
                 key = suggestion.source_term.casefold()

@@ -23,3 +23,8 @@ Return a JSON object with `issues`, an array of objects containing `type`,
 `message`, and `severity` (LOW, MEDIUM, or HIGH). Check omissions, terminology,
 numbers, formulas, citations, and structural damage. Return an empty array when
 no issue is found."""
+
+REVISION_SYSTEM = """Revise the Chinese translation using the supplied quality
+issues. Preserve confirmed terminology, Markdown structure, citations, numbers,
+units, formulas, links, and table shape. Fix only substantiated issues. Do not
+add explanations. Return only the complete revised translation."""

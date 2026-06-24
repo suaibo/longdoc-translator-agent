@@ -36,13 +36,15 @@
 - 工作流节点事件时间线、失败节点展示和节点耗时记录。
 - 任务级真实 token 用量与可配置费用预算限制。
 - 可选高风险 chunk 与章节结束人工审核，支持持久化中断和恢复。
+- 术语/翻译/摘要/质检模型路由、单一备用供应商 fallback。
+- HIGH 质量问题的有限次数自动修订循环。
 - Markdown、HTML、manifest、原始文件与 `result.zip`。
 
 上传任务会由后台 Worker 自动推进到术语确认；用户确认术语后，LangGraph 从原中断点继续翻译。未配置 `LLM_API_KEY` 时，任务会明确进入 `FAILED`，不会回退到 mock 翻译。
 
 仍在开发：
 
-- 非 LLM 长耗时节点的协作式超时，以及供应商 fallback。
+- 非 LLM 长耗时节点的协作式超时。
 - 小说模式、长期记忆、专用子图、修订循环和多模型路由。
 - OpenTelemetry/LangSmith、replay 数据集和多任务独立 Worker。
 
@@ -79,6 +81,12 @@ py -3.12 -m venv .venv
 LLM_BASE_URL=https://api.deepseek.com
 LLM_API_KEY=your_deepseek_key
 LLM_MODEL=deepseek-v4-flash
+LLM_TRANSLATION_MODEL=
+LLM_QUALITY_MODEL=
+LLM_FALLBACK_BASE_URL=
+LLM_FALLBACK_API_KEY=
+LLM_FALLBACK_MODEL=
+MAX_REVISION_ATTEMPTS=1
 JOB_MAX_TOKEN_BUDGET=2000000
 JOB_MAX_COST_USD=0
 LLM_INPUT_COST_PER_MILLION=0

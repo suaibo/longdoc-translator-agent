@@ -10,8 +10,10 @@ from app.services.llm_service import LLMService
 class FakeCompletions:
     def __init__(self, responses):
         self.responses = iter(responses)
+        self.calls = []
 
     def create(self, **kwargs):
+        self.calls.append(kwargs)
         response = next(self.responses)
         if isinstance(response, Exception):
             raise response
@@ -76,3 +78,39 @@ def test_invalid_json_maps_to_llm_error() -> None:
         service.extract_terms("text")
 
     assert caught.value.code == ErrorCode.LLM_CALL_FAILED
+
+
+def test_retry_exhaustion_switches_to_configured_fallback(monkeypatch) -> None:
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("LLM_MAX_RETRIES", "0")
+    monkeypatch.setenv("LLM_FALLBACK_MODEL", "backup-model")
+    get_settings.cache_clear()
+    try:
+        service = LLMService(
+            client=client(APITimeoutError(request=None)),
+            fallback_client=client(response("备用译文")),
+        )
+        result = service.translate_chunk("text", {}, None, None)
+    finally:
+        get_settings.cache_clear()
+
+    assert result.content == "备用译文"
+    assert result.provider == "fallback"
+    assert result.model == "backup-model"
+
+
+def test_task_model_routing_uses_translation_model(monkeypatch) -> None:
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("LLM_TRANSLATION_MODEL", "translation-specialist")
+    get_settings.cache_clear()
+    fake = client(response("译文"))
+    try:
+        service = LLMService(client=fake)
+        result = service.translate_chunk("text", {}, None, None)
+    finally:
+        get_settings.cache_clear()
+
+    assert result.model == "translation-specialist"
+    assert fake.chat.completions.calls[0]["model"] == "translation-specialist"

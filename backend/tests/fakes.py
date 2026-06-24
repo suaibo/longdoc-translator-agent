@@ -40,6 +40,15 @@ class FakeLLM:
     def check_quality(self, original: str, translated: str):
         return QualityResult(issues=[]), self.result('{"issues": []}')
 
+    def revise_translation(
+        self,
+        original: str,
+        translated: str,
+        issues: list[dict[str, str]],
+        terms: dict[str, str],
+    ) -> LLMResult:
+        return self.result(translated)
+
     @staticmethod
     def result(content: str) -> LLMResult:
         return LLMResult(

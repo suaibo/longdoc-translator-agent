@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.deepseek.com"
     llm_api_key: str = ""
     llm_model: str = "deepseek-v4-flash"
+    llm_term_model: str = ""
+    llm_translation_model: str = ""
+    llm_summary_model: str = ""
+    llm_quality_model: str = ""
     llm_timeout_seconds: float = 120
     llm_max_retries: int = 3
     llm_retry_base_seconds: float = 1
@@ -46,6 +50,10 @@ class Settings(BaseSettings):
     job_max_cost_usd: float = 0
     llm_input_cost_per_million: float = 0
     llm_output_cost_per_million: float = 0
+    llm_fallback_base_url: str = ""
+    llm_fallback_api_key: str = ""
+    llm_fallback_model: str = ""
+    max_revision_attempts: int = 1
     workflow_version: str = "1"
     prompt_version: str = "1"
 

@@ -36,6 +36,7 @@ class DocumentChunk(Base):
     has_risk: Mapped[bool] = mapped_column(Boolean, default=False)
     risk_summary: Mapped[str | None]
     token_estimate: Mapped[int] = mapped_column(default=0)
+    revision_count: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     translated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

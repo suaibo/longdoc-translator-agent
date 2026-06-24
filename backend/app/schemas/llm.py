@@ -9,6 +9,8 @@ class LLMUsage(BaseModel):
 
 class LLMResult(BaseModel):
     content: str
+    provider: str = "deepseek"
+    model: str | None = None
     usage: LLMUsage = Field(default_factory=LLMUsage)
     elapsed_ms: int = 0
     retry_count: int = 0

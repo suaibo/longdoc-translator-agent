@@ -5,6 +5,7 @@ from uuid import NAMESPACE_URL, uuid5
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.errors import AppError, ErrorCode
 from app.models.document_chunk import DocumentChunk
 from app.models.enums import ChunkStatus, RiskType
@@ -67,7 +68,6 @@ class TranslationService:
                 job_id,
                 result,
                 chunk_id=chunk.chunk_id,
-                model=llm.settings.llm_model,
             )
             self.db.commit()
             self.db.refresh(chunk)
@@ -97,7 +97,6 @@ class TranslationService:
             job_id,
             result,
             chunk_id=chunk.chunk_id,
-            model=llm.settings.llm_model,
         )
         self.db.commit()
         return result.content
@@ -105,9 +104,6 @@ class TranslationService:
     def mark_quality_risks(self, job_id: str, chunk: DocumentChunk) -> list[RiskItem]:
         if not chunk.translated_text:
             return []
-        findings = self._deterministic_findings(
-            chunk.source_text, chunk.translated_text
-        )
         llm = self.llm or LLMService()
         BudgetService(self.db).assert_available(job_id)
         quality, result = llm.check_quality(chunk.source_text, chunk.translated_text)
@@ -115,7 +111,44 @@ class TranslationService:
             job_id,
             result,
             chunk_id=chunk.chunk_id,
-            model=llm.settings.llm_model,
+        )
+        for _ in range(get_settings().max_revision_attempts):
+            high_issues = [
+                issue
+                for issue in quality.issues
+                if issue.severity.upper() == "HIGH"
+            ]
+            if not high_issues:
+                break
+            BudgetService(self.db).assert_available(job_id)
+            revised = llm.revise_translation(
+                chunk.source_text,
+                chunk.translated_text,
+                [issue.model_dump() for issue in high_issues],
+                TermService(self.db).confirmed_map(job_id),
+            )
+            MetricService(self.db).record(
+                job_id,
+                revised,
+                chunk_id=chunk.chunk_id,
+            )
+            chunk.translated_text = revised.content
+            chunk.revision_count += 1
+            chunk.updated_at = datetime.now(timezone.utc)
+            self.db.commit()
+
+            BudgetService(self.db).assert_available(job_id)
+            quality, result = llm.check_quality(
+                chunk.source_text, chunk.translated_text
+            )
+            MetricService(self.db).record(
+                job_id,
+                result,
+                chunk_id=chunk.chunk_id,
+            )
+
+        findings = self._deterministic_findings(
+            chunk.source_text, chunk.translated_text
         )
         findings.extend(
             (self._risk_type(issue.type), issue.message, issue.severity)
