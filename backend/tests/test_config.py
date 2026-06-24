@@ -14,4 +14,15 @@ def test_default_runtime_paths_are_anchored_to_project_root(
         get_settings.cache_clear()
 
     assert settings.storage_root == PROJECT_ROOT / "storage"
-    assert settings.database_url.endswith("/storage/app.db")
+    assert settings.database_url.startswith("postgresql+psycopg://")
+
+
+def test_relative_storage_root_is_resolved_from_project_root(monkeypatch) -> None:
+    monkeypatch.setenv("STORAGE_ROOT", "runtime-storage")
+    get_settings.cache_clear()
+    try:
+        settings = get_settings()
+    finally:
+        get_settings.cache_clear()
+
+    assert settings.storage_root == PROJECT_ROOT / "runtime-storage"

@@ -69,8 +69,10 @@ MVP 的核心竞争力是：
 
 - Python
 - FastAPI
-- SQLite
-- SQLAlchemy 或 SQLModel（二选一，项目开工时保持一致）
+- PostgreSQL 16
+- SQLAlchemy 2.0
+- Psycopg 3
+- Alembic
 - Pydantic
 
 Agent：
@@ -86,15 +88,15 @@ Agent：
 
 前端：
 
-- React
-- Vite
-- TypeScript
-- 普通 CSS 或轻量组件方案，先保证演示闭环
+- Gradio Blocks
+- 挂载到 FastAPI `/ui`
+- Gradio handler 复用 Service，不通过内部 HTTP 调用自身 API
 
 运行与存储：
 
 - 本地文件系统存储上传文件、解析结果和输出文件
-- SQLite 保存任务、chunk、术语、检查点、指标和风险项
+- PostgreSQL 保存任务、chunk、术语、检查点、指标和风险项
+- Docker Compose 提供默认开发库和独立测试库
 
 ---
 
@@ -212,7 +214,6 @@ longdoc-translator-agent/
         logging.py
       db/
         session.py
-        init_db.py
       models/
         translation_job.py
         document_chunk.py
@@ -241,33 +242,19 @@ longdoc-translator-agent/
         graph.py
         nodes.py
         prompts.py
+      ui/
+        gradio_app.py
+        handlers.py
       storage/
         paths.py
+    alembic/
     tests/
       unit/
       integration/
-  frontend/
-    src/
-      api/
-        client.ts
-        jobs.ts
-        terms.ts
-        chunks.ts
-        outputs.ts
-      pages/
-        UploadPage.tsx
-        JobListPage.tsx
-        JobDetailPage.tsx
-        TermReviewPage.tsx
-        ProgressPage.tsx
-        OutputsPage.tsx
-      components/
-      types/
-      App.tsx
-      main.tsx
   docs/
   samples/
   storage/
+  docker-compose.yml
 ```
 
 `storage/` 是运行时目录，原则上不提交真实上传文件、数据库文件和输出文件。
@@ -291,9 +278,10 @@ longdoc-translator-agent/
 
 `db/`：
 
-- SQLite 连接
+- PostgreSQL 连接
 - session 管理
-- 初始化表结构
+- 连接健康检查
+- 表结构只通过 Alembic 迁移
 
 `models/`：
 
@@ -320,23 +308,13 @@ longdoc-translator-agent/
 
 ---
 
-## 8. 前端模块职责
+## 8. Gradio 模块职责
 
-页面：
-
-- `UploadPage`：上传文件，选择模式和 OCR 模式，创建任务
-- `JobListPage`：任务列表
-- `JobDetailPage`：任务状态总览，根据状态引导到术语确认、进度或结果页
-- `TermReviewPage`：展示、编辑、确认术语表
-- `ProgressPage`：展示 chunk 翻译进度、当前阶段、失败信息、恢复和取消按钮
-- `OutputsPage`：下载双语 Markdown、中文 Markdown、报告
-
-前端规则：
-
-- 通过轮询 `GET /api/jobs/{jobId}` 展示状态。
-- 不要在 MVP 引入复杂状态管理库，除非页面协作已经明显失控。
-- API 类型集中放在 `types/` 或由接口层导出，避免每个页面重复定义。
-- 所有请求统一走 `api/client.ts`，处理统一响应体和错误提示。
+- `gradio_app.py`：构建上传、任务、术语、风险和输出工作区。
+- `handlers.py`：管理事件级 Session，并调用 Service。
+- `gr.State` 只保存当前 `job_id`，业务状态始终重新查询 PostgreSQL。
+- 使用 `gr.Timer` 轮询活动任务。
+- FastAPI REST API 保持独立可用，不把领域逻辑写入 Gradio 回调。
 
 ---
 
@@ -474,10 +452,10 @@ storage/outputs/{jobId}/result.zip             # 输出增强
 
 建议按以下顺序实现：
 
-1. 初始化 backend / frontend 基础工程。
+1. 初始化 FastAPI / Gradio 基础工程。
 2. 配置 `.env.example`、`.gitignore`、运行脚本。
 3. 实现统一响应体、错误码、异常处理。
-4. 建 SQLite 表和初始化逻辑。
+4. 建 PostgreSQL 模型与 Alembic 初始迁移。
 5. 实现任务创建、文件上传、任务列表、任务详情。
 6. 先实现 Markdown / TXT 解析，跑通最小流程。
 7. 实现 chunk 规则基线和风险标记。

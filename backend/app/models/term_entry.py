@@ -1,4 +1,6 @@
-﻿from sqlalchemy import ForeignKey, Index, UniqueConstraint
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -12,14 +14,15 @@ class TermEntry(Base):
     )
 
     term_id: Mapped[str] = mapped_column(primary_key=True)
-    job_id: Mapped[str] = mapped_column(ForeignKey("translation_job.job_id", ondelete="CASCADE"))
+    job_id: Mapped[str] = mapped_column(
+        ForeignKey("translation_job.job_id", ondelete="CASCADE")
+    )
     source_term: Mapped[str]
     suggested_translation: Mapped[str]
     confirmed_translation: Mapped[str | None]
     note: Mapped[str | None]
-    confirmed: Mapped[int] = mapped_column(default=0)
-    created_at: Mapped[str]
-    updated_at: Mapped[str]
+    confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     job = relationship("TranslationJob", back_populates="terms")
-

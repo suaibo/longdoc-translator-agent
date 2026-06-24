@@ -35,14 +35,6 @@ ENV/
 .pytype/
 .ruff_cache/
 
-# Node / frontend
-frontend/node_modules/
-frontend/dist/
-frontend/.vite/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
 # IDE / OS
 .vscode/
 .idea/
@@ -58,6 +50,3 @@ storage/*
 storage/uploads/*
 storage/parsed/*
 storage/outputs/*
-
-# TypeScript build cache
-*.tsbuildinfo

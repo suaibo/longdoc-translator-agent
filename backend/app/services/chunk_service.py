@@ -1,4 +1,3 @@
-import json
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -161,17 +160,11 @@ class ChunkService:
                 select(DocumentChunk).where(DocumentChunk.job_id == job_id)
             )
         }
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(timezone.utc)
         persisted: list[DocumentChunk] = []
 
         try:
             for draft in drafts:
-                source_block_ids = json.dumps(
-                    draft.source_block_ids, ensure_ascii=False
-                )
-                structure_metadata = json.dumps(
-                    draft.structure_metadata, ensure_ascii=False, sort_keys=True
-                )
                 chunk = existing.get(draft.chunk_index)
                 if chunk is None:
                     chunk = DocumentChunk(
@@ -183,10 +176,10 @@ class ChunkService:
                         section_title=draft.section_title,
                         chunk_type=draft.chunk_type.value,
                         source_text=draft.source_text,
-                        source_block_ids=source_block_ids,
-                        structure_metadata=structure_metadata,
+                        source_block_ids=draft.source_block_ids,
+                        structure_metadata=draft.structure_metadata,
                         status=ChunkStatus.PENDING.value,
-                        has_risk=int(bool(draft.risks)),
+                        has_risk=bool(draft.risks),
                         risk_summary=self._risk_summary(draft.risks),
                         token_estimate=draft.token_estimate,
                         created_at=now,
@@ -198,9 +191,9 @@ class ChunkService:
                     chunk.section_title = draft.section_title
                     chunk.chunk_type = draft.chunk_type.value
                     chunk.source_text = draft.source_text
-                    chunk.source_block_ids = source_block_ids
-                    chunk.structure_metadata = structure_metadata
-                    chunk.has_risk = int(bool(draft.risks))
+                    chunk.source_block_ids = draft.source_block_ids
+                    chunk.structure_metadata = draft.structure_metadata
+                    chunk.has_risk = bool(draft.risks)
                     chunk.risk_summary = self._risk_summary(draft.risks)
                     chunk.token_estimate = draft.token_estimate
                     chunk.updated_at = now
@@ -577,7 +570,7 @@ class ChunkService:
         job_id: str,
         chunk: DocumentChunk,
         draft: ChunkDraft,
-        created_at: str,
+        created_at: datetime,
     ) -> None:
         self.db.execute(delete(RiskItem).where(RiskItem.chunk_id == chunk.chunk_id))
         for risk in draft.risks:
@@ -596,14 +589,10 @@ class ChunkService:
                     severity="MEDIUM",
                     message=risk.message,
                     source_excerpt=draft.source_text[:500],
-                    metadata_json=json.dumps(
-                        {
-                            "sourceBlockIds": draft.source_block_ids,
-                            **draft.structure_metadata,
-                        },
-                        ensure_ascii=False,
-                        sort_keys=True,
-                    ),
+                    metadata_json={
+                        "sourceBlockIds": draft.source_block_ids,
+                        **draft.structure_metadata,
+                    },
                     created_at=created_at,
                 )
             )

@@ -1,4 +1,6 @@
-﻿from sqlalchemy import Index
+from datetime import datetime
+
+from sqlalchemy import DateTime, Index, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -9,6 +11,14 @@ class TranslationJob(Base):
     __table_args__ = (
         Index("idx_translation_job_status", "status"),
         Index("idx_translation_job_created_at", "created_at"),
+        Index(
+            "uq_translation_job_one_active",
+            text("(1)"),
+            unique=True,
+            postgresql_where=text(
+                "status IN ('UPLOADED', 'PARSED', 'WAITING_TERM_REVIEW', 'TRANSLATING')"
+            ),
+        ),
     )
 
     job_id: Mapped[str] = mapped_column(primary_key=True)
@@ -23,15 +33,18 @@ class TranslationJob(Base):
     progress_percent: Mapped[float] = mapped_column(default=0)
     error_code: Mapped[str | None]
     error_message: Mapped[str | None]
-    created_at: Mapped[str]
-    updated_at: Mapped[str]
-    started_at: Mapped[str | None]
-    completed_at: Mapped[str | None]
-    cancelled_at: Mapped[str | None]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     chunks = relationship("DocumentChunk", back_populates="job", cascade="all, delete-orphan")
     terms = relationship("TermEntry", back_populates="job", cascade="all, delete-orphan")
-    checkpoints = relationship("AgentCheckpoint", back_populates="job", cascade="all, delete-orphan")
-    metrics = relationship("TranslationMetric", back_populates="job", cascade="all, delete-orphan")
+    checkpoints = relationship(
+        "AgentCheckpoint", back_populates="job", cascade="all, delete-orphan"
+    )
+    metrics = relationship(
+        "TranslationMetric", back_populates="job", cascade="all, delete-orphan"
+    )
     risks = relationship("RiskItem", back_populates="job", cascade="all, delete-orphan")
-

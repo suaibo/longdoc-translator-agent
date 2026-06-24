@@ -1,4 +1,8 @@
-from sqlalchemy import ForeignKey, Index, Text
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy import DateTime, ForeignKey, Index
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -22,8 +26,8 @@ class RiskItem(Base):
     severity: Mapped[str] = mapped_column(default="MEDIUM")
     message: Mapped[str]
     source_excerpt: Mapped[str | None]
-    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
-    created_at: Mapped[str]
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     job = relationship("TranslationJob", back_populates="risks")
     chunk = relationship("DocumentChunk", back_populates="risks")

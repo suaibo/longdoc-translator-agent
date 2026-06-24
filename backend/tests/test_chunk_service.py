@@ -1,5 +1,5 @@
-import json
 import re
+from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import select
@@ -46,8 +46,8 @@ def add_job(db: Session, job_id: str = "job_chunks") -> TranslationJob:
         mode="paper",
         status=JobStatus.UPLOADED.value,
         current_stage="uploaded",
-        created_at="2026-06-24T00:00:00+00:00",
-        updated_at="2026-06-24T00:00:00+00:00",
+        created_at=datetime(2026, 6, 24, tzinfo=timezone.utc),
+        updated_at=datetime(2026, 6, 24, tzinfo=timezone.utc),
     )
     db.add(job)
     db.commit()
@@ -230,9 +230,9 @@ def test_markdown_parser_to_persisted_chunks_integration(
 
     assert [chunk.section_title for chunk in chunks] == ["Paper", "Results", "Results"]
     assert chunks[-1].chunk_type == ChunkType.TABLE.value
-    assert chunks[-1].has_risk == 1
-    metadata = json.loads(chunks[-1].structure_metadata)
-    assert metadata["originalTableBlockId"] in json.loads(chunks[-1].source_block_ids)
+    assert chunks[-1].has_risk is True
+    metadata = chunks[-1].structure_metadata
+    assert metadata["originalTableBlockId"] in chunks[-1].source_block_ids
     assert len(list(db_session.scalars(select(RiskItem)))) == 1
 
 
@@ -254,11 +254,11 @@ def test_create_chunks_is_idempotent_and_inherits_risks(db_session: Session) -> 
     risks = list(db_session.scalars(select(RiskItem)))
     assert len(risks) == 1
     assert risks[0].risk_type == RiskType.STRUCTURE.value
-    risk_metadata = json.loads(risks[0].metadata_json)
+    risk_metadata = risks[0].metadata_json
     assert risk_metadata["sourceBlockIds"] == ["title", "body"]
     assert risk_metadata["pages"] == [2]
     assert risk_metadata["blockLocations"][0]["blockId"] == "body"
-    chunk_metadata = json.loads(second[0].structure_metadata)
+    chunk_metadata = second[0].structure_metadata
     assert chunk_metadata["blockKinds"] == ["title", "paragraph"]
     db_session.refresh(job)
     assert job.status == JobStatus.PARSED.value

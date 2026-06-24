@@ -1,4 +1,6 @@
-﻿from sqlalchemy import ForeignKey, Index
+from datetime import datetime
+
+from sqlalchemy import DateTime, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -12,7 +14,9 @@ class TranslationMetric(Base):
     )
 
     metric_id: Mapped[str] = mapped_column(primary_key=True)
-    job_id: Mapped[str] = mapped_column(ForeignKey("translation_job.job_id", ondelete="CASCADE"))
+    job_id: Mapped[str] = mapped_column(
+        ForeignKey("translation_job.job_id", ondelete="CASCADE")
+    )
     chunk_id: Mapped[str | None] = mapped_column(
         ForeignKey("document_chunk.chunk_id", ondelete="SET NULL")
     )
@@ -24,8 +28,7 @@ class TranslationMetric(Base):
     elapsed_ms: Mapped[int] = mapped_column(default=0)
     retry_count: Mapped[int] = mapped_column(default=0)
     failed_count: Mapped[int] = mapped_column(default=0)
-    created_at: Mapped[str]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     job = relationship("TranslationJob", back_populates="metrics")
     chunk = relationship("DocumentChunk", back_populates="metrics")
-

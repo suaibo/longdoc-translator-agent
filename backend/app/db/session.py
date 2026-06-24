@@ -1,24 +1,23 @@
 from collections.abc import Generator
 
-from sqlalchemy import create_engine, event
-from sqlalchemy.engine import Engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
 
 settings = get_settings()
 
-connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-engine = create_engine(settings.database_url, connect_args=connect_args, future=True)
+engine = create_engine(
+    settings.database_url,
+    pool_pre_ping=True,
+    connect_args={"connect_timeout": settings.database_connect_timeout},
+)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
 
-@event.listens_for(Engine, "connect")
-def _set_sqlite_pragma(dbapi_connection, connection_record) -> None:  # type: ignore[no-untyped-def]
-    # SQLite requires this per connection; otherwise declared cascades are silently ignored.
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.close()
+def verify_database_connection() -> None:
+    with engine.connect() as connection:
+        connection.execute(text("SELECT 1"))
 
 
 def get_db() -> Generator[Session]:

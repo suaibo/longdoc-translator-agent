@@ -1,4 +1,8 @@
-from sqlalchemy import ForeignKey, Index, Text, UniqueConstraint
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -20,17 +24,17 @@ class DocumentChunk(Base):
     section_title: Mapped[str | None]
     chunk_type: Mapped[str] = mapped_column(default="TEXT")
     source_text: Mapped[str]
-    source_block_ids: Mapped[str] = mapped_column(Text, default="[]")
-    structure_metadata: Mapped[str] = mapped_column(Text, default="{}")
+    source_block_ids: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    structure_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     translated_text: Mapped[str | None]
     context_summary: Mapped[str | None]
     status: Mapped[str] = mapped_column(default="PENDING")
-    has_risk: Mapped[int] = mapped_column(default=0)
+    has_risk: Mapped[bool] = mapped_column(Boolean, default=False)
     risk_summary: Mapped[str | None]
     token_estimate: Mapped[int] = mapped_column(default=0)
-    created_at: Mapped[str]
-    updated_at: Mapped[str]
-    translated_at: Mapped[str | None]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    translated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     job = relationship("TranslationJob", back_populates="chunks")
     metrics = relationship("TranslationMetric", back_populates="chunk")
