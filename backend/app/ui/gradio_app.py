@@ -35,6 +35,7 @@ def create_gradio_app() -> gr.Blocks:
                 scale=5,
             )
             refresh_jobs = gr.Button("刷新任务", variant="secondary", scale=1)
+            resume_button = gr.Button("恢复任务", variant="secondary", scale=1)
             cancel_button = gr.Button("取消任务", variant="stop", scale=1)
 
         operation_status = gr.Markdown("", elem_classes=["status-strip"])
@@ -51,6 +52,16 @@ def create_gradio_app() -> gr.Blocks:
                     choices=[("论文", "paper")],
                     value="paper",
                 )
+                ocr_mode = gr.Dropdown(
+                    label="OCR 模式（仅 PDF）",
+                    choices=[
+                        ("自动", "auto"),
+                        ("关闭", "off"),
+                        ("强制", "force"),
+                    ],
+                    value="auto",
+                    visible=False,
+                )
                 create_button = gr.Button("创建任务", variant="primary")
 
             with gr.Tab("任务概览"):
@@ -64,12 +75,20 @@ def create_gradio_app() -> gr.Blocks:
 
             with gr.Tab("术语审核"):
                 terms = gr.Dataframe(
-                    headers=["原文术语", "建议译名", "确认译名", "备注", "已确认"],
-                    datatype=["str", "str", "str", "str", "bool"],
-                    interactive=False,
+                    headers=[
+                        "术语 ID",
+                        "原文术语",
+                        "建议译名",
+                        "确认译名",
+                        "备注",
+                        "已确认",
+                    ],
+                    datatype=["str", "str", "str", "str", "str", "bool"],
+                    type="array",
+                    interactive=True,
                     label="术语表",
                 )
-                gr.Markdown("术语写回与确认将在术语服务节点实现后启用。")
+                confirm_terms_button = gr.Button("确认术语并继续", variant="primary")
 
             with gr.Tab("风险"):
                 risks = gr.Dataframe(
@@ -83,6 +102,10 @@ def create_gradio_app() -> gr.Blocks:
                 bilingual = gr.File(label="双语 Markdown", interactive=False)
                 translated = gr.File(label="中文 Markdown", interactive=False)
                 report = gr.File(label="翻译报告", interactive=False)
+                bilingual_html = gr.File(label="双语 HTML", interactive=False)
+                translated_html = gr.File(label="中文 HTML", interactive=False)
+                package = gr.File(label="结果资源包", interactive=False)
+                source = gr.File(label="原始文件", interactive=False)
 
         timer = gr.Timer(value=2.0, active=True)
         dashboard_outputs = [
@@ -93,6 +116,10 @@ def create_gradio_app() -> gr.Blocks:
             bilingual,
             translated,
             report,
+            bilingual_html,
+            translated_html,
+            package,
+            source,
         ]
 
         demo.load(
@@ -122,7 +149,7 @@ def create_gradio_app() -> gr.Blocks:
         )
         create_button.click(
             handlers.create_job,
-            inputs=[upload, mode],
+            inputs=[upload, mode, ocr_mode],
             outputs=[operation_status, job_selector, selected_job],
         ).then(
             handlers.refresh_dashboard,
@@ -137,6 +164,29 @@ def create_gradio_app() -> gr.Blocks:
             handlers.refresh_dashboard,
             inputs=selected_job,
             outputs=dashboard_outputs,
+        )
+        resume_button.click(
+            handlers.resume_job,
+            inputs=selected_job,
+            outputs=operation_status,
+        ).then(
+            handlers.refresh_dashboard,
+            inputs=selected_job,
+            outputs=dashboard_outputs,
+        )
+        confirm_terms_button.click(
+            handlers.confirm_terms,
+            inputs=[selected_job, terms],
+            outputs=operation_status,
+        ).then(
+            handlers.refresh_dashboard,
+            inputs=selected_job,
+            outputs=dashboard_outputs,
+        )
+        upload.change(
+            handlers.ocr_visibility,
+            inputs=upload,
+            outputs=ocr_mode,
         )
         timer.tick(
             handlers.refresh_dashboard,

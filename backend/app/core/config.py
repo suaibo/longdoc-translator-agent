@@ -21,17 +21,29 @@ class Settings(BaseSettings):
     app_env: str = "local"
     app_host: str = "127.0.0.1"
     app_port: int = 8000
+    worker_enabled: bool = True
     database_url: str = DEFAULT_DATABASE_URL
     database_connect_timeout: int = 5
     storage_root: Path = Field(default=DEFAULT_STORAGE_ROOT)
     max_upload_bytes: int = 50 * 1024 * 1024
     upload_read_size: int = 1024 * 1024
     chunk_max_tokens: int = 1800
+    chunk_target_tokens: int = 1200
+    chunk_soft_max_tokens: int = 1800
+    chunk_hard_max_tokens: int = 2400
+    chunk_min_tokens: int = 120
+    semantic_boundary_threshold: float = 0.58
     table_max_rows: int = 20
 
     llm_base_url: str = "https://api.deepseek.com"
     llm_api_key: str = ""
     llm_model: str = "deepseek-v4-flash"
+    llm_timeout_seconds: float = 120
+    llm_max_retries: int = 3
+    llm_retry_base_seconds: float = 1
+    llm_max_output_tokens: int = 8192
+    workflow_version: str = "1"
+    prompt_version: str = "1"
 
     ocr_engine: str = "rapidocr-onnxruntime"
     default_ocr_mode: str = "auto"

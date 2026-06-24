@@ -16,18 +16,22 @@ def test_gradio_handler_creates_and_reads_job(
 
     monkeypatch.setattr(handlers, "SessionLocal", lambda: db_session)
     monkeypatch.setattr(handlers, "get_storage_paths", lambda: paths)
+    monkeypatch.setattr(
+        handlers,
+        "get_worker",
+        lambda: type("Worker", (), {"enqueue": lambda self, job_id: None})(),
+    )
 
     message, _dropdown, job_id = handlers.create_job(str(source), "paper")
 
     assert job_id is not None
     assert job_id in message
-    summary, terms, chunks, risks, bilingual, translated, report = (
-        handlers.refresh_dashboard(job_id)
-    )
+    result = handlers.refresh_dashboard(job_id)
+    summary, terms, chunks, risks = result[:4]
+    outputs = result[4:]
     assert "UPLOADED" in summary
     assert terms == []
     assert chunks == []
     assert risks == []
-    assert bilingual is None
-    assert translated is None
-    assert report is None
+    assert all(output is None for output in outputs[:-1])
+    assert outputs[-1] is not None

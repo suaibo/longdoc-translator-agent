@@ -16,6 +16,7 @@ from app.models.risk_item import RiskItem
 from app.models.translation_job import TranslationJob
 from app.schemas.chunk import ChunkDraft
 from app.schemas.parser import BlockKind, BlockRisk, ParsedBlock
+from app.services.semantic_boundary import SemanticBoundaryService
 
 ATOMIC_TYPES = {
     BlockKind.FORMULA: ChunkType.FORMULA,
@@ -33,12 +34,15 @@ CJK_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 @dataclass
 class _ChunkBuffer:
     section_title: str | None
+    section_path: list[str] = field(default_factory=list)
     parts: list[str] = field(default_factory=list)
     block_ids: list[str] = field(default_factory=list)
     risks: list[BlockRisk] = field(default_factory=list)
     pages: set[int] = field(default_factory=set)
     kinds: list[str] = field(default_factory=list)
     locations: list[dict[str, Any]] = field(default_factory=list)
+    boundary_reason: str | None = None
+    boundary_score: float | None = None
 
     def text(self) -> str:
         return "\n\n".join(part for part in self.parts if part.strip()).strip()
@@ -50,16 +54,30 @@ class ChunkService:
         db: Session,
         max_tokens: int | None = None,
         max_table_rows: int | None = None,
+        semantic_service: SemanticBoundaryService | None = None,
     ) -> None:
         settings = get_settings()
         self.db = db
-        self.max_tokens = (
-            settings.chunk_max_tokens if max_tokens is None else max_tokens
-        )
+        self.target_tokens = settings.chunk_target_tokens
+        self.soft_max_tokens = settings.chunk_soft_max_tokens
+        self.hard_max_tokens = settings.chunk_hard_max_tokens
+        if max_tokens is not None:
+            self.target_tokens = min(self.target_tokens, max_tokens)
+            self.soft_max_tokens = max_tokens
+            self.hard_max_tokens = max_tokens
+        self.max_tokens = self.hard_max_tokens
+        self.min_tokens = settings.chunk_min_tokens
+        self.semantic_threshold = settings.semantic_boundary_threshold
+        self.semantic_service = semantic_service or SemanticBoundaryService()
         self.max_table_rows = (
             settings.table_max_rows if max_table_rows is None else max_table_rows
         )
-        if self.max_tokens <= 0 or self.max_table_rows <= 0:
+        if (
+            self.target_tokens <= 0
+            or self.soft_max_tokens < self.target_tokens
+            or self.hard_max_tokens < self.soft_max_tokens
+            or self.max_table_rows <= 0
+        ):
             raise ValueError("chunk thresholds must be positive")
 
     def build_drafts(self, blocks: list[ParsedBlock]) -> list[ChunkDraft]:
@@ -83,8 +101,13 @@ class ChunkService:
         while index < len(ordered):
             block = ordered[index]
             if block.kind in {BlockKind.TITLE, BlockKind.HEADING}:
+                buffer.boundary_reason = "SECTION_BOUNDARY"
                 self._flush_buffer(buffer, drafts)
-                buffer = _ChunkBuffer(section_title=block.text.strip() or None)
+                section_path = list(block.metadata.get("section_path", []))
+                buffer = _ChunkBuffer(
+                    section_title=block.text.strip() or None,
+                    section_path=section_path or [block.text.strip()],
+                )
                 self._append_block(buffer, block)
                 index += 1
                 continue
@@ -104,39 +127,76 @@ class ChunkService:
                 caption = self._referenced_caption(block, captions_by_ref)
 
             if block.kind == BlockKind.TABLE:
+                buffer.boundary_reason = "ATOMIC_BLOCK"
                 self._flush_buffer(buffer, drafts)
                 drafts.extend(
                     self._build_table_drafts(
-                        block, buffer.section_title, caption=caption
+                        block,
+                        buffer.section_title,
+                        section_path=buffer.section_path,
+                        caption=caption,
                     )
                 )
             elif block.kind in ATOMIC_TYPES:
+                buffer.boundary_reason = "ATOMIC_BLOCK"
                 self._flush_buffer(buffer, drafts)
                 drafts.append(
                     self._atomic_draft(
                         block,
                         buffer.section_title,
                         ATOMIC_TYPES[block.kind],
+                        section_path=buffer.section_path,
                         caption=caption,
                     )
                 )
             else:
                 for piece in self._split_block(block):
                     candidate = f"{buffer.text()}\n\n{piece.markdown}".strip()
-                    if (
+                    candidate_tokens = self.estimate_tokens(candidate)
+                    boundary_score = None
+                    if buffer.parts:
+                        boundary_score, signals = self.semantic_service.score(
+                            buffer.parts[-1], piece.markdown
+                        )
+                    # Structure has already been isolated above. Semantic scoring is
+                    # therefore allowed to split only ordinary text in one section.
+                    should_semantic_split = (
                         buffer.parts
-                        and self.estimate_tokens(candidate) > self.max_tokens
-                    ):
+                        and self.estimate_tokens(buffer.text()) >= self.target_tokens
+                        and boundary_score is not None
+                        and boundary_score >= self.semantic_threshold
+                    )
+                    if buffer.parts and candidate_tokens > self.hard_max_tokens:
+                        buffer.boundary_reason = "TOKEN_HARD_LIMIT"
+                        buffer.boundary_score = boundary_score
                         self._flush_buffer(buffer, drafts)
+                    elif buffer.parts and (
+                        candidate_tokens > self.soft_max_tokens
+                        or should_semantic_split
+                    ):
+                        buffer.boundary_reason = (
+                            "SEMANTIC_SHIFT"
+                            if should_semantic_split
+                            else "TOKEN_SOFT_LIMIT"
+                        )
+                        buffer.boundary_score = boundary_score
+                        if boundary_score is not None:
+                            buffer.locations.append({"boundarySignals": signals})
+                        self._flush_buffer(buffer, drafts)
+                    piece_path = list(piece.metadata.get("section_path", []))
+                    if piece_path:
+                        buffer.section_path = piece_path
                     self._append_block(buffer, piece)
             index += 1
 
+        buffer.boundary_reason = "END_OF_DOCUMENT"
         self._flush_buffer(buffer, drafts)
-        return [
+        indexed = [
             draft.model_copy(update={"chunk_index": chunk_index})
-            for chunk_index, draft in enumerate(drafts)
+            for chunk_index, draft in enumerate(self._merge_small_drafts(drafts))
             if draft.source_text.strip()
         ]
+        return indexed
 
     def create_chunks(
         self, job_id: str, blocks: list[ParsedBlock]
@@ -178,6 +238,10 @@ class ChunkService:
                         source_text=draft.source_text,
                         source_block_ids=draft.source_block_ids,
                         structure_metadata=draft.structure_metadata,
+                        section_path=draft.section_path,
+                        boundary_reason=draft.boundary_reason,
+                        boundary_score=draft.boundary_score,
+                        semantic_topic=draft.semantic_topic,
                         status=ChunkStatus.PENDING.value,
                         has_risk=bool(draft.risks),
                         risk_summary=self._risk_summary(draft.risks),
@@ -193,6 +257,10 @@ class ChunkService:
                     chunk.source_text = draft.source_text
                     chunk.source_block_ids = draft.source_block_ids
                     chunk.structure_metadata = draft.structure_metadata
+                    chunk.section_path = draft.section_path
+                    chunk.boundary_reason = draft.boundary_reason
+                    chunk.boundary_score = draft.boundary_score
+                    chunk.semantic_topic = draft.semantic_topic
                     chunk.has_risk = bool(draft.risks)
                     chunk.risk_summary = self._risk_summary(draft.risks)
                     chunk.token_estimate = draft.token_estimate
@@ -251,13 +319,18 @@ class ChunkService:
         self,
         table: ParsedBlock,
         section_title: str | None,
+        section_path: list[str],
         caption: ParsedBlock | None,
     ) -> list[ChunkDraft]:
         lines = [line for line in table.markdown.splitlines() if line.strip()]
         if len(lines) < 2 or not self._is_separator_row(lines[1]):
             return [
                 self._atomic_draft(
-                    table, section_title, ChunkType.TABLE, caption=caption
+                    table,
+                    section_title,
+                    ChunkType.TABLE,
+                    section_path=section_path,
+                    caption=caption,
                 )
             ]
 
@@ -273,6 +346,7 @@ class ChunkService:
                 self._table_draft(
                     table,
                     section_title,
+                    section_path,
                     caption,
                     header,
                     rows,
@@ -287,6 +361,7 @@ class ChunkService:
             self._table_draft(
                 table,
                 section_title,
+                section_path,
                 caption,
                 header,
                 group_rows,
@@ -321,6 +396,7 @@ class ChunkService:
         self,
         table: ParsedBlock,
         section_title: str | None,
+        section_path: list[str],
         caption: ParsedBlock | None,
         header: list[str],
         rows: list[str],
@@ -340,6 +416,9 @@ class ChunkService:
             chunk_type=ChunkType.TABLE,
             source_text=source_text,
             source_block_ids=block_ids,
+            section_path=section_path,
+            boundary_reason="TABLE_GROUP" if group_count > 1 else "ATOMIC_BLOCK",
+            semantic_topic=self.semantic_service.topic(source_text),
             structure_metadata={
                 "tableGroupId": table_group_id,
                 "groupIndex": group_index,
@@ -359,6 +438,7 @@ class ChunkService:
         block: ParsedBlock,
         section_title: str | None,
         chunk_type: ChunkType,
+        section_path: list[str] | None = None,
         caption: ParsedBlock | None = None,
     ) -> ChunkDraft:
         blocks = [item for item in [caption, block] if item is not None]
@@ -389,6 +469,9 @@ class ChunkService:
             chunk_type=chunk_type,
             source_text=source_text,
             source_block_ids=[item.block_id for item in blocks],
+            section_path=section_path or list(block.metadata.get("section_path", [])),
+            boundary_reason="ATOMIC_BLOCK",
+            semantic_topic=self.semantic_service.topic(source_text),
             structure_metadata=metadata,
             risks=risks,
             token_estimate=self.estimate_tokens(source_text),
@@ -404,6 +487,10 @@ class ChunkService:
                 chunk_type=ChunkType.TEXT,
                 source_text=source_text,
                 source_block_ids=list(dict.fromkeys(buffer.block_ids)),
+                section_path=list(buffer.section_path),
+                boundary_reason=buffer.boundary_reason or "TOKEN_SOFT_LIMIT",
+                boundary_score=buffer.boundary_score,
+                semantic_topic=self.semantic_service.topic(source_text),
                 structure_metadata={
                     "atomic": False,
                     "blockKinds": list(buffer.kinds),
@@ -420,6 +507,53 @@ class ChunkService:
         buffer.pages.clear()
         buffer.kinds.clear()
         buffer.locations.clear()
+        buffer.boundary_reason = None
+        buffer.boundary_score = None
+
+    def _merge_small_drafts(self, drafts: list[ChunkDraft]) -> list[ChunkDraft]:
+        # A small fragment may merge only with adjacent text in the same section;
+        # atomic tables/formulas and hard structure boundaries remain untouched.
+        if len(drafts) < 2:
+            return drafts
+        merged: list[ChunkDraft] = []
+        for draft in drafts:
+            if (
+                merged
+                and draft.chunk_type == ChunkType.TEXT
+                and merged[-1].chunk_type == ChunkType.TEXT
+                and draft.section_path == merged[-1].section_path
+                and draft.token_estimate < self.min_tokens
+                and merged[-1].token_estimate + draft.token_estimate
+                <= self.soft_max_tokens
+            ):
+                previous = merged.pop()
+                source_text = f"{previous.source_text}\n\n{draft.source_text}".strip()
+                merged.append(
+                    previous.model_copy(
+                        update={
+                            "source_text": source_text,
+                            "source_block_ids": list(
+                                dict.fromkeys(
+                                    previous.source_block_ids + draft.source_block_ids
+                                )
+                            ),
+                            "structure_metadata": {
+                                **previous.structure_metadata,
+                                "mergedSmallFragment": True,
+                            },
+                            "boundary_reason": draft.boundary_reason,
+                            "boundary_score": draft.boundary_score,
+                            "semantic_topic": self.semantic_service.topic(source_text),
+                            "risks": self._merge_risks(
+                                previous.risks, draft.risks
+                            ),
+                            "token_estimate": self.estimate_tokens(source_text),
+                        }
+                    )
+                )
+            else:
+                merged.append(draft)
+        return merged
 
     @staticmethod
     def _append_block(buffer: _ChunkBuffer, block: ParsedBlock) -> None:

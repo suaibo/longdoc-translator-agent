@@ -4,6 +4,7 @@ from app.models.risk_item import RiskItem
 from app.models.term_entry import TermEntry
 from app.models.translation_job import TranslationJob
 from app.models.translation_metric import TranslationMetric
+from app.db import langgraph_tables as langgraph_tables
 
 __all__ = [
     "AgentCheckpoint",
@@ -12,4 +13,5 @@ __all__ = [
     "TermEntry",
     "TranslationJob",
     "TranslationMetric",
+    "langgraph_tables",
 ]

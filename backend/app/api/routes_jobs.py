@@ -8,9 +8,14 @@ from app.db.session import get_db
 from app.models.translation_job import TranslationJob
 from app.schemas.job import JobCreatedResponse, JobResponse, JobStatusResponse
 from app.services.job_service import JobService
+from app.services.worker_service import WorkerService, get_worker
 from app.storage.paths import StoragePaths, get_storage_paths
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
+
+
+def get_background_worker() -> WorkerService:
+    return get_worker()
 
 
 def get_job_service(
@@ -23,10 +28,13 @@ def get_job_service(
 @router.post("")
 async def create_job(
     service: Annotated[JobService, Depends(get_job_service)],
+    worker: Annotated[WorkerService, Depends(get_background_worker)],
     file: Annotated[UploadFile, File()],
     mode: Annotated[str, Form()] = "paper",
+    ocr_mode: Annotated[str, Form(alias="ocrMode")] = "auto",
 ) -> dict[str, Any]:
-    job = await service.create_job(file, mode)
+    job = await service.create_job(file, mode, ocr_mode)
+    worker.enqueue(job.job_id)
     data = JobCreatedResponse(job_id=job.job_id).model_dump(by_alias=True)
     return success(data)
 
@@ -49,6 +57,22 @@ def cancel_job(
 ) -> dict[str, Any]:
     job = service.cancel_job(job_id)
     data = JobStatusResponse(job_id=job.job_id, status=job.status).model_dump(by_alias=True)
+    return success(data)
+
+
+@router.post("/{job_id}/resume")
+def resume_job(
+    job_id: str,
+    service: Annotated[JobService, Depends(get_job_service)],
+    worker: Annotated[WorkerService, Depends(get_background_worker)],
+) -> dict[str, Any]:
+    service.get_job(job_id)
+    worker.resume(job_id)
+    service.db.expire_all()
+    job = service.get_job(job_id)
+    data = JobStatusResponse(job_id=job.job_id, status=job.status).model_dump(
+        by_alias=True
+    )
     return success(data)
 
 

@@ -29,12 +29,18 @@ class JobService:
         self.paths = paths
         self.settings = get_settings()
 
-    async def create_job(self, upload: UploadFile, mode: str) -> TranslationJob:
-        original_filename, extension = self._validate_request(upload.filename, mode)
+    async def create_job(
+        self, upload: UploadFile, mode: str, ocr_mode: str = "auto"
+    ) -> TranslationJob:
+        original_filename, extension = self._validate_request(
+            upload.filename, mode, ocr_mode
+        )
         job_id, upload_dir, stored_path = self._allocate_upload(extension)
         try:
             await self._save_upload(upload, stored_path)
-            return self._persist_job(job_id, original_filename, stored_path, mode)
+            return self._persist_job(
+                job_id, original_filename, stored_path, mode, ocr_mode
+            )
         except Exception:
             self.db.rollback()
             self._cleanup_upload(upload_dir, stored_path)
@@ -43,14 +49,22 @@ class JobService:
             await upload.close()
 
     def create_job_from_path(
-        self, source: Path, original_filename: str, mode: str = "paper"
+        self,
+        source: Path,
+        original_filename: str,
+        mode: str = "paper",
+        ocr_mode: str = "auto",
     ) -> TranslationJob:
         """Create a job from a Gradio temporary file without coupling UI to FastAPI."""
-        original_filename, extension = self._validate_request(original_filename, mode)
+        original_filename, extension = self._validate_request(
+            original_filename, mode, ocr_mode
+        )
         job_id, upload_dir, stored_path = self._allocate_upload(extension)
         try:
             self._copy_upload(source, stored_path)
-            return self._persist_job(job_id, original_filename, stored_path, mode)
+            return self._persist_job(
+                job_id, original_filename, stored_path, mode, ocr_mode
+            )
         except Exception:
             self.db.rollback()
             self._cleanup_upload(upload_dir, stored_path)
@@ -87,7 +101,7 @@ class JobService:
         return self.db.scalar(statement.limit(1)) is not None
 
     def _validate_request(
-        self, filename: str | None, mode: str
+        self, filename: str | None, mode: str, ocr_mode: str
     ) -> tuple[str, str]:
         original_filename = Path(filename or "").name
         extension = Path(original_filename).suffix.lower()
@@ -97,6 +111,12 @@ class JobService:
             raise AppError(
                 ErrorCode.VALIDATION_ERROR,
                 "mode 目前仅支持 paper",
+                status_code=422,
+            )
+        if ocr_mode not in {"auto", "off", "force"}:
+            raise AppError(
+                ErrorCode.VALIDATION_ERROR,
+                "ocrMode 必须是 auto、off 或 force",
                 status_code=422,
             )
         if self._has_active_job():
@@ -110,7 +130,12 @@ class JobService:
         return job_id, upload_dir, upload_dir / f"original{extension}"
 
     def _persist_job(
-        self, job_id: str, original_filename: str, stored_path: Path, mode: str
+        self,
+        job_id: str,
+        original_filename: str,
+        stored_path: Path,
+        mode: str,
+        ocr_mode: str,
     ) -> TranslationJob:
         now = datetime.now(timezone.utc)
         job = TranslationJob(
@@ -118,7 +143,13 @@ class JobService:
             original_filename=original_filename,
             original_file_path=str(stored_path),
             parsed_markdown_path=None,
+            document_ir_path=None,
+            document_ir_version=None,
+            output_manifest_path=None,
             mode=mode,
+            ocr_mode=ocr_mode,
+            workflow_version=self.settings.workflow_version,
+            prompt_version=self.settings.prompt_version,
             status=JobStatus.UPLOADED.value,
             current_stage="uploaded",
             created_at=now,

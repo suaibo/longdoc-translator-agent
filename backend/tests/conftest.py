@@ -12,6 +12,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from app.core.config import PROJECT_ROOT, get_settings
+from app.api.routes_jobs import get_background_worker
 from app.db.session import get_db
 from app.main import create_app
 from app.storage.paths import StoragePaths, get_storage_paths
@@ -75,5 +76,17 @@ def client(db_session: Session, tmp_path: Path) -> Generator[TestClient]:
 
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_storage_paths] = lambda: paths
+    app.dependency_overrides[get_background_worker] = lambda: NoopWorker()
     with TestClient(app) as test_client:
         yield test_client
+
+
+class NoopWorker:
+    def enqueue(self, job_id: str, resume_payload=None) -> None:
+        return None
+
+    def resume(self, job_id: str) -> None:
+        return None
+
+    def resume_review(self, job_id: str) -> None:
+        return None

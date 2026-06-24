@@ -12,7 +12,10 @@ from app.db.session import SessionLocal
 from app.models.document_chunk import DocumentChunk
 from app.models.risk_item import RiskItem
 from app.models.term_entry import TermEntry
+from app.schemas.term import TermConfirmation
 from app.services.job_service import JobService
+from app.services.term_service import TermService
+from app.services.worker_service import get_worker
 from app.storage.paths import get_storage_paths
 
 
@@ -25,7 +28,9 @@ def session_scope() -> Generator[Session]:
         session.close()
 
 
-def create_job(file_path: str | None, mode: str) -> tuple[str, Any, str | None]:
+def create_job(
+    file_path: str | None, mode: str, ocr_mode: str = "auto"
+) -> tuple[str, Any, str | None]:
     if not file_path:
         return "请先选择 PDF、Markdown 或 TXT 文件。", gr.update(), None
 
@@ -33,8 +38,9 @@ def create_job(file_path: str | None, mode: str) -> tuple[str, Any, str | None]:
     try:
         with session_scope() as db:
             job = JobService(db, get_storage_paths()).create_job_from_path(
-                source, source.name, mode
+                source, source.name, mode, ocr_mode
             )
+            get_worker().enqueue(job.job_id)
             choices = _job_choices(JobService(db, get_storage_paths()).list_jobs())
             return (
                 f"任务 `{job.job_id}` 已创建。",
@@ -72,11 +78,61 @@ def cancel_job(job_id: str | None) -> str:
         return f"取消任务失败：{exc}"
 
 
+def resume_job(job_id: str | None) -> str:
+    if not job_id:
+        return "请先选择任务。"
+    try:
+        get_worker().resume(job_id)
+        return "任务已从最近检查点恢复。"
+    except AppError as exc:
+        return exc.message
+    except Exception as exc:
+        return f"恢复任务失败：{exc}"
+
+
+def confirm_terms(job_id: str | None, rows: list[list[Any]]) -> str:
+    if not job_id:
+        return "请先选择任务。"
+    try:
+        confirmations = [
+            TermConfirmation(
+                term_id=str(row[0]),
+                confirmed_translation=str(row[3] or row[2]),
+                note=str(row[4]) if row[4] else None,
+            )
+            for row in rows
+        ]
+        with session_scope() as db:
+            TermService(db).confirm(job_id, confirmations)
+        get_worker().resume_review(job_id)
+        return "术语已确认，翻译工作流已继续。"
+    except (AppError, ValueError) as exc:
+        return getattr(exc, "message", str(exc))
+    except Exception as exc:
+        return f"确认术语失败：{exc}"
+
+
+def ocr_visibility(file_path: str | None) -> Any:
+    return gr.update(visible=bool(file_path and Path(file_path).suffix.lower() == ".pdf"))
+
+
 def refresh_dashboard(
     job_id: str | None,
-) -> tuple[str, list[list[Any]], list[list[Any]], list[list[Any]], Any, Any, Any]:
+) -> tuple[
+    str,
+    list[list[Any]],
+    list[list[Any]],
+    list[list[Any]],
+    Any,
+    Any,
+    Any,
+    Any,
+    Any,
+    Any,
+    Any,
+]:
     if not job_id:
-        return "请选择任务。", [], [], [], None, None, None
+        return "请选择任务。", [], [], [], None, None, None, None, None, None, None
 
     try:
         with session_scope() as db:
@@ -108,6 +164,7 @@ def refresh_dashboard(
                 _job_markdown(job),
                 [
                     [
+                        term.term_id,
                         term.source_term,
                         term.suggested_translation,
                         term.confirmed_translation or "",
@@ -139,11 +196,27 @@ def refresh_dashboard(
                 _existing_output(outputs.output_file(job_id, "bilingual")),
                 _existing_output(outputs.output_file(job_id, "translated")),
                 _existing_output(outputs.output_file(job_id, "report")),
+                _existing_output(outputs.output_file(job_id, "bilingual_html")),
+                _existing_output(outputs.output_file(job_id, "translated_html")),
+                _existing_output(outputs.output_file(job_id, "package")),
+                _existing_output(Path(job.original_file_path)),
             )
     except AppError as exc:
-        return exc.message, [], [], [], None, None, None
+        return exc.message, [], [], [], None, None, None, None, None, None, None
     except Exception as exc:
-        return f"刷新失败：{exc}", [], [], [], None, None, None
+        return (
+            f"刷新失败：{exc}",
+            [],
+            [],
+            [],
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
 
 
 def _job_choices(jobs: list[Any]) -> list[tuple[str, str]]:

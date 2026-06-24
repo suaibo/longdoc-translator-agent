@@ -428,7 +428,7 @@ MVP 核心表：
 ```text
 storage/uploads/{jobId}/original.ext
 storage/parsed/{jobId}/document.md
-storage/parsed/{jobId}/document.ir.json        # 输出增强前置，尚未实现
+storage/parsed/{jobId}/document.ir.json        # DocumentIR Lite
 storage/parsed/{jobId}/assets/
 storage/outputs/{jobId}/bilingual.md
 storage/outputs/{jobId}/translated.md

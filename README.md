@@ -27,23 +27,29 @@
 - 表格、公式、引用、长段落和解析异常风险标记。
 - Gradio 上传、任务选择、轮询、chunk/术语/风险查看和输出下载入口。
 - 真实 PostgreSQL 集成测试。
+- DocumentIR Lite、章节树、TableIR/FormulaIR/FigureIR 和 PDF 结构资产。
+- target/soft/hard token 预算、本地语义边界和可解释 chunk 字段。
+- DeepSeek 术语抽取、术语人工确认和真实翻译。
+- LangGraph `StateGraph`、PostgreSQL checkpointer、人工中断和恢复。
+- 单任务后台 Worker、进程启动恢复、chunk 边界取消。
+- 滑动窗口摘要、分类重试、调用指标和翻译质量检查。
+- Markdown、HTML、manifest、原始文件与 `result.zip`。
+
+上传任务会由后台 Worker 自动推进到术语确认；用户确认术语后，LangGraph 从原中断点继续翻译。未配置 `LLM_API_KEY` 时，任务会明确进入 `FAILED`，不会回退到 mock 翻译。
 
 仍在开发：
 
-- DocumentIR Lite 持久化。
-- DeepSeek 术语抽取与人工确认写回。
-- LangGraph 节点编排、`interrupt/resume` 和 PostgreSQL checkpoint。
-- 分块翻译、滑动窗口记忆、重试和指标。
-- Markdown/HTML 输出、原始文件与结果资源包。
-
-当前上传任务不会自动推进到解析与翻译阶段，相关 Worker 和 LangGraph 节点仍属于后续模块。Gradio 不会伪造尚未实现的处理结果。
+- 高风险 chunk 和章节级人工确认。
+- 工作流事件时间线、费用预算和供应商 fallback。
+- 小说模式、长期记忆、专用子图、修订循环和多模型路由。
+- OpenTelemetry/LangSmith、replay 数据集和多任务独立 Worker。
 
 ## 技术栈
 
 - 后端：Python 3.12、FastAPI、Pydantic
 - 数据库：PostgreSQL 16、SQLAlchemy 2.0、Psycopg 3、Alembic
 - 前端：Gradio Blocks，挂载于 FastAPI `/ui`
-- Agent：LangGraph（规划中）
+- Agent：LangGraph 1.x、PostgreSQL checkpointer
 - 文档解析：Docling、RapidOCR
 - LLM：DeepSeek OpenAI-compatible API
 - 文件存储：本地文件系统

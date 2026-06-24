@@ -34,6 +34,9 @@ def test_alembic_creates_core_tables(db_session: Session) -> None:
         "translation_metric",
         "risk_item",
         "alembic_version",
+        "checkpoints",
+        "checkpoint_blobs",
+        "checkpoint_writes",
     }.issubset(tables)
 
 

@@ -26,6 +26,10 @@ class DocumentChunk(Base):
     source_text: Mapped[str]
     source_block_ids: Mapped[list[str]] = mapped_column(JSONB, default=list)
     structure_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    section_path: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    boundary_reason: Mapped[str | None]
+    boundary_score: Mapped[float | None]
+    semantic_topic: Mapped[str | None]
     translated_text: Mapped[str | None]
     context_summary: Mapped[str | None]
     status: Mapped[str] = mapped_column(default="PENDING")

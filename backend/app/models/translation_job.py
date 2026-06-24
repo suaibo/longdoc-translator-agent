@@ -25,7 +25,13 @@ class TranslationJob(Base):
     original_filename: Mapped[str]
     original_file_path: Mapped[str]
     parsed_markdown_path: Mapped[str | None]
+    document_ir_path: Mapped[str | None]
+    document_ir_version: Mapped[str | None]
+    output_manifest_path: Mapped[str | None]
     mode: Mapped[str] = mapped_column(default="paper")
+    ocr_mode: Mapped[str] = mapped_column(default="auto")
+    workflow_version: Mapped[str] = mapped_column(default="1")
+    prompt_version: Mapped[str] = mapped_column(default="1")
     status: Mapped[str]
     current_stage: Mapped[str]
     total_chunks: Mapped[int] = mapped_column(default=0)
@@ -33,6 +39,7 @@ class TranslationJob(Base):
     progress_percent: Mapped[float] = mapped_column(default=0)
     error_code: Mapped[str | None]
     error_message: Mapped[str | None]
+    retry_count: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

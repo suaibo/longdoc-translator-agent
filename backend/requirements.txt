@@ -6,6 +6,9 @@ SQLAlchemy==2.0.43
 alembic==1.16.5
 psycopg[binary]==3.2.10
 gradio==5.49.1
+langgraph==1.2.6
+langgraph-checkpoint-postgres==3.1.0
+openai==2.43.0
 pytest==8.4.2
 httpx==0.28.1
 docling==2.106.0

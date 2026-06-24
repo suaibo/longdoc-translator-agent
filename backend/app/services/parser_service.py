@@ -18,7 +18,12 @@ class ParserService:
         self.normalizer = normalizer or LayoutNormalizer()
         self.converter_factory = converter_factory or self._build_docling_converter
 
-    def parse(self, source: Path, ocr_mode: str = "auto") -> list[ParsedBlock]:
+    def parse(
+        self,
+        source: Path,
+        ocr_mode: str = "auto",
+        assets_dir: Path | None = None,
+    ) -> list[ParsedBlock]:
         extension = source.suffix.lower()
         if ocr_mode not in {"auto", "off", "force"}:
             raise AppError(
@@ -28,7 +33,7 @@ class ParserService:
             )
         try:
             if extension == ".pdf":
-                blocks = self._parse_pdf(source, ocr_mode)
+                blocks = self._parse_pdf(source, ocr_mode, assets_dir)
             elif extension == ".md":
                 blocks = self._parse_markdown(source.read_text(encoding="utf-8-sig"))
             elif extension == ".txt":
@@ -52,9 +57,13 @@ class ParserService:
         return content + "\n"
 
     def parse_to_markdown(
-        self, source: Path, destination: Path, ocr_mode: str = "auto"
+        self,
+        source: Path,
+        destination: Path,
+        ocr_mode: str = "auto",
+        assets_dir: Path | None = None,
     ) -> list[ParsedBlock]:
-        blocks = self.parse(source, ocr_mode=ocr_mode)
+        blocks = self.parse(source, ocr_mode=ocr_mode, assets_dir=assets_dir)
         destination.parent.mkdir(parents=True, exist_ok=True)
         temporary = destination.with_suffix(destination.suffix + ".tmp")
         temporary.write_text(self.render_markdown(blocks), encoding="utf-8")
@@ -62,7 +71,9 @@ class ParserService:
         temporary.replace(destination)
         return blocks
 
-    def _parse_pdf(self, source: Path, ocr_mode: str) -> list[ParsedBlock]:
+    def _parse_pdf(
+        self, source: Path, ocr_mode: str, assets_dir: Path | None
+    ) -> list[ParsedBlock]:
         converter = self.converter_factory(ocr_mode)
         result = converter.convert(source, raises_on_error=True)
         document = result.document
@@ -88,9 +99,13 @@ class ParserService:
                 level = None
 
             page_no, bbox = self._docling_position(document, item)
+            block_id = f"block_{index:06d}"
+            asset_metadata = self._save_source_asset(
+                document, item, kind, block_id, assets_dir
+            )
             blocks.append(
                 ParsedBlock(
-                    block_id=f"block_{index:06d}",
+                    block_id=block_id,
                     kind=kind,
                     text=text or markdown,
                     markdown=markdown,
@@ -108,6 +123,7 @@ class ParserService:
                             getattr(reference, "cref", None)
                             for reference in getattr(item, "captions", [])
                         ],
+                        **asset_metadata,
                     },
                 )
             )
@@ -213,6 +229,10 @@ class ParserService:
 
         options = PdfPipelineOptions()
         options.do_ocr = ocr_mode != "off"
+        options.generate_page_images = True
+        options.generate_picture_images = True
+        options.generate_table_images = True
+        options.images_scale = 2.0
         ocr_engine = get_settings().ocr_engine
         if options.do_ocr and ocr_engine == "rapidocr-onnxruntime":
             # Pin the OCR backend so an installed torch package cannot make RapidOCR
@@ -228,6 +248,43 @@ class ParserService:
             allowed_formats=[InputFormat.PDF],
             format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)},
         )
+
+    @staticmethod
+    def _save_source_asset(
+        document: Any,
+        item: Any,
+        kind: BlockKind,
+        block_id: str,
+        assets_dir: Path | None,
+    ) -> dict[str, Any]:
+        if (
+            assets_dir is None
+            or kind not in {BlockKind.TABLE, BlockKind.FORMULA, BlockKind.PICTURE}
+            or not hasattr(item, "get_image")
+        ):
+            return {}
+        try:
+            image = item.get_image(document)
+            if image is None:
+                return {}
+            category = {
+                BlockKind.TABLE: "tables",
+                BlockKind.FORMULA: "formulas",
+                BlockKind.PICTURE: "figures",
+            }[kind]
+            destination = assets_dir / category / f"{block_id}.png"
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temporary = destination.with_suffix(".png.tmp")
+            image.save(temporary, format="PNG")
+            temporary.replace(destination)
+            return {
+                "source_asset_path": destination.relative_to(
+                    assets_dir.parent
+                ).as_posix(),
+                "source_asset_media_type": "image/png",
+            }
+        except Exception as exc:
+            return {"source_asset_error": str(exc)}
 
     @staticmethod
     def _docling_position(

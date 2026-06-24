@@ -47,6 +47,7 @@ class AppError(Exception):
         self.message = message or ERROR_MESSAGES[code]
         self.data = data
         self.status_code = status_code
+        super().__init__(self.message)
 
 
 def app_error_handler(_: Request, exc: AppError) -> JSONResponse:

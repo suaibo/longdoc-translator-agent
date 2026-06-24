@@ -24,11 +24,23 @@ class StoragePaths:
     def parsed_markdown(self, job_id: str) -> Path:
         return self.parsed_dir(job_id) / "document.md"
 
+    def document_ir(self, job_id: str) -> Path:
+        return self.parsed_dir(job_id) / "document.ir.json"
+
+    def parsed_assets_dir(self, job_id: str) -> Path:
+        return self.parsed_dir(job_id) / "assets"
+
+    def output_manifest(self, job_id: str) -> Path:
+        return self.output_dir(job_id) / "manifest.json"
+
     def output_file(self, job_id: str, output_type: str) -> Path:
         filenames = {
             "bilingual": "bilingual.md",
             "translated": "translated.md",
             "report": "report.md",
+            "bilingual_html": "bilingual.html",
+            "translated_html": "translated.html",
+            "package": "result.zip",
         }
         if output_type not in filenames:
             raise ValueError(f"unsupported output type: {output_type}")
