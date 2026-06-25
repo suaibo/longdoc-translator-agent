@@ -46,7 +46,7 @@ class OutputService:
         chunks = self._chunks(job_id)
         output_dir = self.paths.output_dir(job_id)
         output_dir.mkdir(parents=True, exist_ok=True)
-        bilingual_md = self._bilingual_markdown(chunks)
+        bilingual_md = self._bilingual_markdown(job, chunks)
         translated_md = self._translated_markdown(chunks)
         bilingual_html = self._bilingual_html(job, chunks)
         translated_html = self._translated_html(job, chunks)
@@ -130,9 +130,7 @@ class OutputService:
     def generate_manifest_and_package(self, job_id: str) -> tuple[Path, Path]:
         job = self._job(job_id)
         output_dir = self.paths.output_dir(job_id)
-        ReplayService(self.db).export(
-            job_id, self.paths.replay_dataset(job_id)
-        )
+        ReplayService(self.db).export(job_id, self.paths.replay_dataset(job_id))
         files: list[dict[str, Any]] = []
         for output_type, (filename, media_type) in OUTPUT_TYPES.items():
             if output_type == "package":
@@ -194,7 +192,9 @@ class OutputService:
                 path = self._safe_output_path(output_dir, item["path"])
                 archive.write(path, item["path"])
             archive.write(manifest_path, "manifest.json")
-            archive.write(source_path, f"source/{self._safe_filename(job.original_filename)}")
+            archive.write(
+                source_path, f"source/{self._safe_filename(job.original_filename)}"
+            )
         temporary.replace(package_path)
         job.output_manifest_path = str(manifest_path)
         self.db.commit()
@@ -233,7 +233,9 @@ class OutputService:
             raise AppError(ErrorCode.OUTPUT_NOT_FOUND, status_code=404)
         return path, self._safe_filename(job.original_filename)
 
-    def _bilingual_markdown(self, chunks: list[DocumentChunk]) -> str:
+    def _bilingual_markdown(
+        self, job: TranslationJob, chunks: list[DocumentChunk]
+    ) -> str:
         parts = ["# 双语对照", ""]
         for chunk in chunks:
             parts.extend(
@@ -242,7 +244,7 @@ class OutputService:
                     "### Original",
                     self.renderer.markdown_chunk(chunk, translated=False),
                     "",
-                    "### 中文",
+                    f"### 译文（{job.target_language.upper()}）",
                     self.renderer.markdown_chunk(chunk, translated=True),
                     "",
                 ]
@@ -252,15 +254,12 @@ class OutputService:
     def _translated_markdown(self, chunks: list[DocumentChunk]) -> str:
         return (
             "\n\n".join(
-                self.renderer.markdown_chunk(chunk, translated=True)
-                for chunk in chunks
+                self.renderer.markdown_chunk(chunk, translated=True) for chunk in chunks
             ).strip()
             + "\n"
         )
 
-    def _bilingual_html(
-        self, job: TranslationJob, chunks: list[DocumentChunk]
-    ) -> str:
+    def _bilingual_html(self, job: TranslationJob, chunks: list[DocumentChunk]) -> str:
         body = "\n".join(
             '<section class="pair">'
             f'<div class="source">{self.renderer.html_chunk(chunk, False)}</div>'
@@ -268,13 +267,21 @@ class OutputService:
             "</section>"
             for chunk in chunks
         )
-        return self.renderer.document_html(job.original_filename, body, bilingual=True)
+        return self.renderer.document_html(
+            job.original_filename,
+            body,
+            bilingual=True,
+            target_language=job.target_language,
+        )
 
-    def _translated_html(
-        self, job: TranslationJob, chunks: list[DocumentChunk]
-    ) -> str:
+    def _translated_html(self, job: TranslationJob, chunks: list[DocumentChunk]) -> str:
         body = "\n".join(self.renderer.html_chunk(chunk, True) for chunk in chunks)
-        return self.renderer.document_html(job.original_filename, body, bilingual=False)
+        return self.renderer.document_html(
+            job.original_filename,
+            body,
+            bilingual=False,
+            target_language=job.target_language,
+        )
 
     def _job(self, job_id: str) -> TranslationJob:
         job = self.db.get(TranslationJob, job_id)

@@ -7,6 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import RedirectResponse
 
 from app.api.routes_chunks import router as chunks_router
+from app.api.routes_auth import router as auth_router
 from app.api.routes_events import router as events_router
 from app.api.routes_health import router as health_router
 from app.api.routes_jobs import router as jobs_router
@@ -49,6 +50,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.include_router(health_router)
+    app.include_router(auth_router)
     app.include_router(jobs_router)
     app.include_router(events_router)
     app.include_router(reviews_router)

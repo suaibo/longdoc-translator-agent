@@ -14,11 +14,16 @@ class JobResponse(BaseModel):
     job_id: str
     original_filename: str
     mode: str
+    source_language: str | None
+    target_language: str
     status: str
     current_stage: str
     total_chunks: int
     completed_chunks: int
     progress_percent: float
+    eta_seconds: int | None
+    queue_position: int | None = None
+    has_unresolved_risks: bool
     require_high_risk_review: bool
     require_chapter_review: bool
     error_code: str | None

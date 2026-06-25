@@ -1,9 +1,11 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from statistics import median
+from uuid import uuid4
 from typing import Any
 
 from langgraph.types import interrupt
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from app.agent.state import TranslationState
 from app.core.config import get_settings
@@ -15,22 +17,203 @@ from app.models.enums import (
     JobStatus,
     ReviewStatus,
     ReviewType,
+    RiskType,
 )
 from app.models.risk_item import RiskItem
 from app.models.translation_job import TranslationJob
+from app.models.translation_metric import TranslationMetric
+from app.services.boundary_analysis import BoundaryAnalysisService
 from app.services.checkpoint_service import CheckpointService
 from app.services.chunk_service import ChunkService
 from app.services.document_ir_service import DocumentIRService
 from app.services.output_service import OutputService
+from app.services.llm_service import LLMService
 from app.services.memory_service import MemoryService
+from app.services.metric_service import MetricService
 from app.services.parser_service import ParserService
 from app.services.review_service import ReviewService
 from app.services.term_service import TermService
 from app.services.translation_service import TranslationService
 from app.storage.paths import get_storage_paths
+from app.storage.object_store import ObjectStorageService
 
 
 class WorkflowNodes:
+    def parse_document_safe(self, state: TranslationState) -> dict[str, Any]:
+        try:
+            result = self.parse_document(state)
+            return {**result, "parse_error": None}
+        except Exception as exc:
+            return {
+                "parse_error": str(exc),
+                "parse_retry_count": state.get("parse_retry_count", 0) + 1,
+            }
+
+    def fail_parse(self, state: TranslationState) -> dict[str, Any]:
+        raise AppError(
+            ErrorCode.DOCLING_PARSE_FAILED,
+            state.get("parse_error") or "文档解析失败",
+            status_code=500,
+        )
+
+    def detect_language(self, state: TranslationState) -> dict[str, Any]:
+        with SessionLocal() as db:
+            job = self._job(db, state["job_id"])
+            if not job.document_ir_path:
+                raise AppError(
+                    ErrorCode.INVALID_STATE,
+                    "任务缺少 DocumentIR",
+                    status_code=409,
+                )
+            service = DocumentIRService()
+            document = service.read(Path(job.document_ir_path))
+            language = BoundaryAnalysisService().detect_language(
+                service.to_parsed_blocks(document)
+            )
+            job.source_language = language
+            job.current_stage = "detect_language"
+            job.updated_at = datetime.now(timezone.utc)
+            db.commit()
+            return {"source_language": language}
+
+    def discover_boundary_candidates(self, state: TranslationState) -> dict[str, Any]:
+        with SessionLocal() as db:
+            job = self._job(db, state["job_id"])
+            service = DocumentIRService()
+            document = service.read(Path(job.document_ir_path))
+            candidates = BoundaryAnalysisService().discover(
+                service.to_parsed_blocks(document)
+            )
+            job.current_stage = "discover_boundary_candidates"
+            job.updated_at = datetime.now(timezone.utc)
+            CheckpointService(db).save(
+                job.job_id,
+                "discover_boundary_candidates",
+                {"candidateCount": len(candidates)},
+            )
+            db.commit()
+            return {"boundary_candidates": candidates}
+
+    def analyze_semantic_boundaries(self, state: TranslationState) -> dict[str, Any]:
+        decisions: list[dict[str, Any]] = []
+        try:
+            with SessionLocal() as db:
+                job = self._job(db, state["job_id"])
+                job.current_stage = "analyze_semantic_boundaries"
+                llm = LLMService()
+                for candidate in state.get("boundary_candidates", []):
+                    decision, result = llm.analyze_boundary(
+                        candidate["left"],
+                        candidate["right"],
+                        candidate["signals"],
+                        state.get("source_language") or "unknown",
+                    )
+                    MetricService(db).record(job.job_id, result)
+                    item = {
+                        **candidate,
+                        "decision": decision.decision,
+                        "confidence": decision.confidence,
+                        "reason": decision.reason,
+                        "sentenceComplete": decision.sentence_complete,
+                    }
+                    decisions.append(item)
+                    if decision.decision == "UNCERTAIN":
+                        self._add_boundary_risk(
+                            db,
+                            job.job_id,
+                            RiskType.CROSS_PAGE_UNCERTAIN,
+                            "跨页文本关系无法可靠判断，已按规则保守处理",
+                            item,
+                        )
+                CheckpointService(db).save(
+                    job.job_id,
+                    "analyze_semantic_boundaries",
+                    {"decisions": decisions},
+                )
+                db.commit()
+            return {
+                "boundary_decisions": decisions,
+                "boundary_analysis_failed": False,
+            }
+        except Exception:
+            return {
+                "boundary_analysis_failed": True,
+                "boundary_retry_count": state.get("boundary_retry_count", 0) + 1,
+            }
+
+    def fallback_boundary_analysis(self, state: TranslationState) -> dict[str, Any]:
+        decisions = [
+            {
+                **candidate,
+                "decision": "UNCERTAIN",
+                "confidence": 0.0,
+                "reason": "DeepSeek 边界判断失败，使用规则切分",
+                "sentenceComplete": False,
+            }
+            for candidate in state.get("boundary_candidates", [])
+        ]
+        with SessionLocal() as db:
+            job = self._job(db, state["job_id"])
+            for decision in decisions:
+                self._add_boundary_risk(
+                    db,
+                    job.job_id,
+                    RiskType.BOUNDARY_MODEL_FAILED,
+                    "语义边界模型不可用，已回退到结构与 token 规则",
+                    decision,
+                )
+            job.current_stage = "fallback_boundary_analysis"
+            job.has_unresolved_risks = bool(decisions) or job.has_unresolved_risks
+            db.commit()
+        return {
+            "boundary_decisions": decisions,
+            "boundary_analysis_failed": False,
+        }
+
+    def normalize_cross_page_text(self, state: TranslationState) -> dict[str, Any]:
+        with SessionLocal() as db:
+            job = self._job(db, state["job_id"])
+            job.current_stage = "normalize_cross_page_text"
+            job.updated_at = datetime.now(timezone.utc)
+            CheckpointService(db).save(
+                job.job_id,
+                "normalize_cross_page_text",
+                {"decisionCount": len(state.get("boundary_decisions", []))},
+            )
+            db.commit()
+        return {}
+
+    def validate_outputs(self, state: TranslationState) -> dict[str, Any]:
+        paths = get_storage_paths()
+        required = [
+            paths.output_file(state["job_id"], name)
+            for name in (
+                "bilingual",
+                "translated",
+                "bilingual_html",
+                "translated_html",
+            )
+        ]
+        missing = [
+            str(path)
+            for path in required
+            if not path.is_file() or path.stat().st_size == 0
+        ]
+        if missing:
+            return {
+                "output_valid": False,
+                "output_error": f"输出缺失或为空: {', '.join(missing)}",
+                "output_retry_count": state.get("output_retry_count", 0) + 1,
+            }
+        return {"output_valid": True, "output_error": None}
+
+    def fail_output_validation(self, state: TranslationState) -> dict[str, Any]:
+        raise AppError(
+            ErrorCode.INTERNAL_ERROR,
+            state.get("output_error") or "输出完整性校验失败",
+            status_code=500,
+        )
+
     def parse_document(self, state: TranslationState) -> dict[str, Any]:
         with SessionLocal() as db:
             job = self._job(db, state["job_id"])
@@ -49,12 +232,22 @@ class WorkflowNodes:
 
             paths = get_storage_paths()
             source = Path(job.original_file_path)
-            blocks = ParserService().parse_to_markdown(
-                source,
-                paths.parsed_markdown(job.job_id),
-                ocr_mode=job.ocr_mode,
-                assets_dir=paths.parsed_assets_dir(job.job_id),
-            )
+            # A PostgreSQL advisory lock keeps memory-heavy PDF parsing at one
+            # concurrent process across the whole deployment.
+            parser_lock_key = 742001
+            db.execute(text("SELECT pg_advisory_lock(:key)"), {"key": parser_lock_key})
+            try:
+                blocks = ParserService().parse_to_markdown(
+                    source,
+                    paths.parsed_markdown(job.job_id),
+                    ocr_mode=job.ocr_mode,
+                    assets_dir=paths.parsed_assets_dir(job.job_id),
+                )
+            finally:
+                db.execute(
+                    text("SELECT pg_advisory_unlock(:key)"),
+                    {"key": parser_lock_key},
+                )
             ir_service = DocumentIRService()
             document = ir_service.build(
                 job.job_id,
@@ -73,6 +266,7 @@ class WorkflowNodes:
                 "parse_document",
                 {"documentIrPath": job.document_ir_path},
             )
+            ObjectStorageService(paths).sync_parsed(job)
             db.commit()
             return {"workflow_version": job.workflow_version}
 
@@ -90,7 +284,11 @@ class WorkflowNodes:
                 )
             ir_service = DocumentIRService()
             document = ir_service.read(Path(job.document_ir_path))
-            chunks = ChunkService(db).create_chunks(
+            decisions = {
+                item["rightBlockId"]: item
+                for item in state.get("boundary_decisions", [])
+            }
+            chunks = ChunkService(db, boundary_decisions=decisions).create_chunks(
                 job.job_id, ir_service.to_parsed_blocks(document)
             )
             CheckpointService(db).save(
@@ -175,6 +373,23 @@ class WorkflowNodes:
             job.progress_percent = (
                 completed / job.total_chunks * 100 if job.total_chunks else 0
             )
+            durations = list(
+                db.scalars(
+                    select(TranslationMetric.elapsed_ms).where(
+                        TranslationMetric.job_id == job.job_id,
+                        TranslationMetric.chunk_id.is_not(None),
+                        TranslationMetric.elapsed_ms > 0,
+                    )
+                )
+            )
+            remaining = max(0, job.total_chunks - completed)
+            job.eta_seconds = (
+                0
+                if remaining == 0
+                else int(remaining * median(durations) / 1000) + 30
+                if durations
+                else None
+            )
             job.updated_at = datetime.now(timezone.utc)
             db.commit()
             return {
@@ -204,8 +419,92 @@ class WorkflowNodes:
                 raise AppError(
                     ErrorCode.INVALID_STATE, "当前 chunk 不存在", status_code=409
                 )
-            TranslationService(db).mark_quality_risks(job.job_id, chunk)
-            return {}
+            risks = TranslationService(db).mark_quality_risks(job.job_id, chunk)
+            high_risk = any(risk.severity == "HIGH" for risk in risks)
+            if high_risk:
+                job.has_unresolved_risks = True
+                db.commit()
+            return {"quality_has_high_risk": high_risk}
+
+    def check_cross_chunk_coherence(self, state: TranslationState) -> dict[str, Any]:
+        with SessionLocal() as db:
+            job = self._job(db, state["job_id"])
+            chunk = db.get(DocumentChunk, state.get("current_chunk_id"))
+            if chunk is None or chunk.chunk_index <= 0:
+                return {
+                    "quality_has_high_risk": state.get("quality_has_high_risk", False)
+                }
+            previous = db.scalar(
+                select(DocumentChunk).where(
+                    DocumentChunk.job_id == job.job_id,
+                    DocumentChunk.chunk_index == chunk.chunk_index - 1,
+                )
+            )
+            if previous is None:
+                return {
+                    "quality_has_high_risk": state.get("quality_has_high_risk", False)
+                }
+            left = previous.source_text.rstrip()
+            right = chunk.source_text.lstrip()
+            suspicious = bool(right[:1].islower()) or (
+                left
+                and left[-1] not in ".!?。！？；;؟؛])）】"
+                and chunk.boundary_reason in {"TOKEN_HARD_LIMIT", "TOKEN_SOFT_LIMIT"}
+            )
+            if not suspicious:
+                return {
+                    "quality_has_high_risk": state.get("quality_has_high_risk", False)
+                }
+            candidate = {
+                "leftBlockId": previous.chunk_id,
+                "rightBlockId": chunk.chunk_id,
+                "left": left[-800:],
+                "right": right[:800],
+                "signals": ["CROSS_CHUNK_SUSPICION"],
+            }
+            high_risk = state.get("quality_has_high_risk", False)
+            try:
+                decision, result = LLMService().analyze_boundary(
+                    candidate["left"],
+                    candidate["right"],
+                    candidate["signals"],
+                    job.source_language or "unknown",
+                )
+                MetricService(db).record(job.job_id, result, chunk_id=chunk.chunk_id)
+                if decision.decision == "CONTINUE":
+                    candidate.update(
+                        {
+                            "decision": decision.decision,
+                            "confidence": decision.confidence,
+                            "reason": decision.reason,
+                        }
+                    )
+                    self._add_boundary_risk(
+                        db,
+                        job.job_id,
+                        RiskType.SEMANTIC_DISCONTINUITY,
+                        "当前 chunk 可能切断了上一句，建议对照原文复核",
+                        candidate,
+                        chunk_id=chunk.chunk_id,
+                        severity="HIGH",
+                    )
+                    chunk.has_risk = True
+                    job.has_unresolved_risks = True
+                    high_risk = True
+                db.commit()
+            except Exception:
+                self._add_boundary_risk(
+                    db,
+                    job.job_id,
+                    RiskType.BOUNDARY_MODEL_FAILED,
+                    "跨 chunk 连贯性检查失败，已保留译文并提示人工复核",
+                    candidate,
+                    chunk_id=chunk.chunk_id,
+                )
+                chunk.has_risk = True
+                job.has_unresolved_risks = True
+                db.commit()
+            return {"quality_has_high_risk": high_risk}
 
     def update_long_term_memory(self, state: TranslationState) -> dict[str, Any]:
         with SessionLocal() as db:
@@ -336,10 +635,15 @@ class WorkflowNodes:
             job.current_stage = "completed"
             job.completed_chunks = job.total_chunks
             job.progress_percent = 100
+            job.eta_seconds = 0
             job.completed_at = now
+            job.retention_expires_at = now + timedelta(
+                days=get_settings().file_retention_days
+            )
             job.updated_at = now
             service.generate_report(job.job_id)
             service.generate_manifest_and_package(job.job_id)
+            ObjectStorageService(get_storage_paths()).sync_outputs(job)
             CheckpointService(db).save(
                 job.job_id, "generate_report", {"completed": True}
             )
@@ -347,10 +651,81 @@ class WorkflowNodes:
         return {}
 
     @staticmethod
+    def route_after_parse(state: TranslationState) -> str:
+        if not state.get("parse_error"):
+            return "success"
+        return "retry" if state.get("parse_retry_count", 0) <= 2 else "failed"
+
+    @staticmethod
+    def route_boundary_analysis(state: TranslationState) -> str:
+        return "analyze" if state.get("boundary_candidates") else "split"
+
+    @staticmethod
+    def route_after_boundary_analysis(state: TranslationState) -> str:
+        if not state.get("boundary_analysis_failed"):
+            return "normalize"
+        return (
+            "retry"
+            if state.get("boundary_retry_count", 0)
+            <= get_settings().boundary_llm_max_retries
+            else "fallback"
+        )
+
+    @staticmethod
+    def route_after_quality(state: TranslationState) -> str:
+        if not state.get("quality_has_high_risk"):
+            return "summarize"
+        with SessionLocal() as db:
+            job = db.get(TranslationJob, state["job_id"])
+            return "review" if job and job.require_high_risk_review else "summarize"
+
+    @staticmethod
+    def route_after_output_validation(state: TranslationState) -> str:
+        if state.get("output_valid"):
+            return "report"
+        return "retry" if state.get("output_retry_count", 0) <= 2 else "failed"
+
+    @staticmethod
     def route_after_translation(state: TranslationState) -> str:
         if state.get("cancelled"):
             return "cancelled"
         return "outputs" if state.get("translation_done") else "summarize"
+
+    @staticmethod
+    def _add_boundary_risk(
+        db: Any,
+        job_id: str,
+        risk_type: RiskType,
+        message: str,
+        decision: dict[str, Any],
+        chunk_id: str | None = None,
+        severity: str = "MEDIUM",
+    ) -> None:
+        db.add(
+            RiskItem(
+                risk_id=f"risk_{uuid4().hex}",
+                job_id=job_id,
+                chunk_id=chunk_id,
+                risk_type=risk_type.value,
+                severity=severity,
+                message=message,
+                source_excerpt=(
+                    f"{decision.get('left', '')}\n--- PAGE ---\n"
+                    f"{decision.get('right', '')}"
+                )[:1000],
+                metadata_json={
+                    "leftBlockId": decision.get("leftBlockId"),
+                    "rightBlockId": decision.get("rightBlockId"),
+                    "leftPage": decision.get("leftPage"),
+                    "rightPage": decision.get("rightPage"),
+                    "decision": decision.get("decision"),
+                    "reason": decision.get("reason"),
+                    "systemAction": "保留原文并使用规则边界",
+                    "suggestedAction": "对照原 PDF 检查跨页句子",
+                },
+                created_at=datetime.now(timezone.utc),
+            )
+        )
 
     @staticmethod
     def _job(db: Any, job_id: str) -> TranslationJob:

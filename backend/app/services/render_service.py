@@ -30,8 +30,14 @@ class RenderService:
             )
         return self._text_html(text)
 
-    def document_html(self, title: str, body: str, bilingual: bool) -> str:
-        mode = "双语对照" if bilingual else "中文译文"
+    def document_html(
+        self,
+        title: str,
+        body: str,
+        bilingual: bool,
+        target_language: str = "zh",
+    ) -> str:
+        mode = "双语对照" if bilingual else f"译文（{target_language.upper()}）"
         return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -73,9 +79,7 @@ th {{ background: #eef3f1; }}
             heading = re.match(r"^(#{1,6})\s+(.+)$", stripped)
             if heading:
                 level = len(heading.group(1))
-                parts.append(
-                    f"<h{level}>{html.escape(heading.group(2))}</h{level}>"
-                )
+                parts.append(f"<h{level}>{html.escape(heading.group(2))}</h{level}>")
             else:
                 escaped = html.escape(stripped).replace("\n", "<br>")
                 parts.append(f"<p>{escaped}</p>")
@@ -97,7 +101,7 @@ th {{ background: #eef3f1; }}
             "<tr>" + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>"
             for row in body
         )
-        return f"<div class=\"table-wrap\"><table><thead><tr>{head_html}</tr></thead><tbody>{body_html}</tbody></table></div>"
+        return f'<div class="table-wrap"><table><thead><tr>{head_html}</tr></thead><tbody>{body_html}</tbody></table></div>'
 
     def _formula_html(self, latex: str) -> str:
         clean = re.sub(r"^\$\$|\$\$$", "", latex.strip()).strip()

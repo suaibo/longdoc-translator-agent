@@ -27,7 +27,7 @@ PROTECTED_PATTERN = re.compile(
     r"(\$\$.*?\$\$|\$[^$\n]+\$|\\\(.*?\\\)|\\\[.*?\\\]|\[\d+(?:\s*[-,]\s*\d+)*\])",
     re.DOTALL,
 )
-SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?。！？；;])\s+|(?<=[。！？；])")
+SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?。！？；;؟؛])\s+|(?<=[。！？；])")
 CJK_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 
 
@@ -55,6 +55,7 @@ class ChunkService:
         max_tokens: int | None = None,
         max_table_rows: int | None = None,
         semantic_service: SemanticBoundaryService | None = None,
+        boundary_decisions: dict[str, dict[str, Any]] | None = None,
     ) -> None:
         settings = get_settings()
         self.db = db
@@ -69,6 +70,7 @@ class ChunkService:
         self.min_tokens = settings.chunk_min_tokens
         self.semantic_threshold = settings.semantic_boundary_threshold
         self.semantic_service = semantic_service or SemanticBoundaryService()
+        self.boundary_decisions = boundary_decisions or {}
         self.max_table_rows = (
             settings.table_max_rows if max_table_rows is None else max_table_rows
         )
@@ -153,35 +155,41 @@ class ChunkService:
                 for piece in self._split_block(block):
                     candidate = f"{buffer.text()}\n\n{piece.markdown}".strip()
                     candidate_tokens = self.estimate_tokens(candidate)
-                    boundary_score = None
-                    if buffer.parts:
-                        boundary_score, signals = self.semantic_service.score(
-                            buffer.parts[-1], piece.markdown
-                        )
-                    # Structure has already been isolated above. Semantic scoring is
-                    # therefore allowed to split only ordinary text in one section.
+                    decision = self.boundary_decisions.get(piece.block_id)
+                    decision_name = str((decision or {}).get("decision", ""))
+                    boundary_score = (
+                        float(decision.get("confidence", 0)) if decision else None
+                    )
+                    force_continue = decision_name == "CONTINUE"
                     should_semantic_split = (
-                        buffer.parts
-                        and self.estimate_tokens(buffer.text()) >= self.target_tokens
-                        and boundary_score is not None
-                        and boundary_score >= self.semantic_threshold
+                        bool(buffer.parts)
+                        and decision_name == "SPLIT"
+                        and self.estimate_tokens(buffer.text()) >= self.min_tokens
                     )
                     if buffer.parts and candidate_tokens > self.hard_max_tokens:
                         buffer.boundary_reason = "TOKEN_HARD_LIMIT"
                         buffer.boundary_score = boundary_score
                         self._flush_buffer(buffer, drafts)
                     elif buffer.parts and (
-                        candidate_tokens > self.soft_max_tokens
-                        or should_semantic_split
+                        should_semantic_split
+                        or (
+                            candidate_tokens > self.soft_max_tokens
+                            and not force_continue
+                        )
                     ):
                         buffer.boundary_reason = (
-                            "SEMANTIC_SHIFT"
+                            "LLM_SEMANTIC_SPLIT"
                             if should_semantic_split
                             else "TOKEN_SOFT_LIMIT"
                         )
                         buffer.boundary_score = boundary_score
-                        if boundary_score is not None:
-                            buffer.locations.append({"boundarySignals": signals})
+                        if decision:
+                            buffer.locations.append(
+                                {
+                                    "boundaryDecision": decision_name,
+                                    "boundaryReason": decision.get("reason"),
+                                }
+                            )
                         self._flush_buffer(buffer, drafts)
                     piece_path = list(piece.metadata.get("section_path", []))
                     if piece_path:
@@ -544,9 +552,7 @@ class ChunkService:
                             "boundary_reason": draft.boundary_reason,
                             "boundary_score": draft.boundary_score,
                             "semantic_topic": self.semantic_service.topic(source_text),
-                            "risks": self._merge_risks(
-                                previous.risks, draft.risks
-                            ),
+                            "risks": self._merge_risks(previous.risks, draft.risks),
                             "token_estimate": self.estimate_tokens(source_text),
                         }
                     )

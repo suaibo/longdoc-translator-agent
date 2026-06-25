@@ -89,6 +89,7 @@ def test_langgraph_interrupt_resume_completes_full_workflow(
             assert completed is not None
             assert completed.status == "COMPLETED"
             assert completed.progress_percent == 100
+            assert completed.eta_seconds == 0
             assert paths.document_ir(job_id).is_file()
             assert paths.output_file(job_id, "package").is_file()
             events = EventService(db).list_events(job_id)

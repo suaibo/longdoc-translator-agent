@@ -101,67 +101,66 @@ def _elapsed_ms(started: float) -> int:
 def build_workflow(checkpointer=None):
     nodes = WorkflowNodes()
     builder = StateGraph(TranslationState)
-    builder.add_node(
-        "parse_document", _instrument_node("parse_document", nodes.parse_document)
-    )
-    builder.add_node(
-        "split_sections", _instrument_node("split_sections", nodes.split_sections)
-    )
-    builder.add_node(
-        "extract_terms", _instrument_node("extract_terms", nodes.extract_terms)
-    )
-    builder.add_node(
-        "interrupt_for_term_review",
-        _instrument_node(
-            "interrupt_for_term_review", nodes.interrupt_for_term_review
-        ),
-    )
-    builder.add_node(
-        "translate_chunk", _instrument_node("translate_chunk", nodes.translate_chunk)
-    )
-    builder.add_node(
-        "summarize_chunk_context",
-        _instrument_node(
-            "summarize_chunk_context", nodes.summarize_chunk_context
-        ),
-    )
-    builder.add_node(
-        "mark_risks", _instrument_node("mark_risks", nodes.mark_risks)
-    )
-    builder.add_node(
-        "update_long_term_memory",
-        _instrument_node(
-            "update_long_term_memory", nodes.update_long_term_memory
-        ),
-    )
-    builder.add_node(
-        "interrupt_for_high_risk_review",
-        _instrument_node(
-            "interrupt_for_high_risk_review",
-            nodes.interrupt_for_high_risk_review,
-        ),
-    )
-    builder.add_node(
-        "interrupt_for_chapter_review",
-        _instrument_node(
-            "interrupt_for_chapter_review",
-            nodes.interrupt_for_chapter_review,
-        ),
-    )
-    builder.add_node(
-        "save_checkpoint", _instrument_node("save_checkpoint", nodes.save_checkpoint)
-    )
-    builder.add_node(
-        "generate_outputs",
-        _instrument_node("generate_outputs", nodes.generate_outputs),
-    )
-    builder.add_node(
-        "generate_report",
-        _instrument_node("generate_report", nodes.generate_report),
-    )
+
+    node_map = {
+        "parse_document": nodes.parse_document_safe,
+        "fail_parse": nodes.fail_parse,
+        "detect_language": nodes.detect_language,
+        "discover_boundary_candidates": nodes.discover_boundary_candidates,
+        "analyze_semantic_boundaries": nodes.analyze_semantic_boundaries,
+        "fallback_boundary_analysis": nodes.fallback_boundary_analysis,
+        "normalize_cross_page_text": nodes.normalize_cross_page_text,
+        "split_sections": nodes.split_sections,
+        "extract_terms": nodes.extract_terms,
+        "interrupt_for_term_review": nodes.interrupt_for_term_review,
+        "translate_chunk": nodes.translate_chunk,
+        "mark_risks": nodes.mark_risks,
+        "check_cross_chunk_coherence": nodes.check_cross_chunk_coherence,
+        "summarize_chunk_context": nodes.summarize_chunk_context,
+        "update_long_term_memory": nodes.update_long_term_memory,
+        "interrupt_for_high_risk_review": nodes.interrupt_for_high_risk_review,
+        "interrupt_for_chapter_review": nodes.interrupt_for_chapter_review,
+        "save_checkpoint": nodes.save_checkpoint,
+        "generate_outputs": nodes.generate_outputs,
+        "validate_outputs": nodes.validate_outputs,
+        "fail_output_validation": nodes.fail_output_validation,
+        "generate_report": nodes.generate_report,
+    }
+    for name, node in node_map.items():
+        builder.add_node(name, _instrument_node(name, node))
 
     builder.add_edge(START, "parse_document")
-    builder.add_edge("parse_document", "split_sections")
+    builder.add_conditional_edges(
+        "parse_document",
+        nodes.route_after_parse,
+        {
+            "success": "detect_language",
+            "retry": "parse_document",
+            "failed": "fail_parse",
+        },
+    )
+    builder.add_edge("detect_language", "discover_boundary_candidates")
+    builder.add_conditional_edges(
+        "discover_boundary_candidates",
+        nodes.route_boundary_analysis,
+        {
+            "split": "split_sections",
+            "analyze": "analyze_semantic_boundaries",
+        },
+    )
+    builder.add_conditional_edges(
+        "analyze_semantic_boundaries",
+        nodes.route_after_boundary_analysis,
+        {
+            "normalize": "normalize_cross_page_text",
+            "retry": "analyze_semantic_boundaries",
+            "fallback": "fallback_boundary_analysis",
+        },
+    )
+    builder.add_edge("normalize_cross_page_text", "split_sections")
+    builder.add_edge("fallback_boundary_analysis", "split_sections")
+    builder.add_edge("fail_parse", END)
+
     builder.add_edge("split_sections", "extract_terms")
     builder.add_edge("extract_terms", "interrupt_for_term_review")
     builder.add_edge("interrupt_for_term_review", "translate_chunk")
@@ -169,19 +168,36 @@ def build_workflow(checkpointer=None):
         "translate_chunk",
         nodes.route_after_translation,
         {
-            "summarize": "summarize_chunk_context",
+            "summarize": "mark_risks",
             "outputs": "generate_outputs",
             "cancelled": END,
         },
     )
-    builder.add_edge("summarize_chunk_context", "update_long_term_memory")
-    builder.add_edge("update_long_term_memory", "mark_risks")
-    builder.add_edge("mark_risks", "interrupt_for_high_risk_review")
-    builder.add_edge(
-        "interrupt_for_high_risk_review", "interrupt_for_chapter_review"
+    builder.add_edge("mark_risks", "check_cross_chunk_coherence")
+    builder.add_conditional_edges(
+        "check_cross_chunk_coherence",
+        nodes.route_after_quality,
+        {
+            "review": "interrupt_for_high_risk_review",
+            "summarize": "summarize_chunk_context",
+        },
     )
+    builder.add_edge("interrupt_for_high_risk_review", "summarize_chunk_context")
+    builder.add_edge("summarize_chunk_context", "update_long_term_memory")
+    builder.add_edge("update_long_term_memory", "interrupt_for_chapter_review")
     builder.add_edge("interrupt_for_chapter_review", "save_checkpoint")
     builder.add_edge("save_checkpoint", "translate_chunk")
-    builder.add_edge("generate_outputs", "generate_report")
+
+    builder.add_edge("generate_outputs", "validate_outputs")
+    builder.add_conditional_edges(
+        "validate_outputs",
+        nodes.route_after_output_validation,
+        {
+            "report": "generate_report",
+            "retry": "generate_outputs",
+            "failed": "fail_output_validation",
+        },
+    )
+    builder.add_edge("fail_output_validation", END)
     builder.add_edge("generate_report", END)
     return builder.compile(checkpointer=checkpointer, name="longdoc-translator")

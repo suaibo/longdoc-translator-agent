@@ -1,19 +1,22 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from shutil import copyfileobj
 from uuid import uuid4
 
 from fastapi import UploadFile
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.errors import AppError, ErrorCode
 from app.models.enums import JobStatus
+from app.models.job_queue import JobQueue
 from app.models.translation_job import TranslationJob
+from app.storage.object_store import ObjectStorageService
 from app.storage.paths import StoragePaths
 
 SUPPORTED_EXTENSIONS = {".pdf", ".md", ".txt"}
+SUPPORTED_LANGUAGES = {"zh", "en", "ja", "ko", "fr", "de", "es", "pt", "ru", "ar"}
 ACTIVE_STATUSES = {
     JobStatus.UPLOADED.value,
     JobStatus.PARSED.value,
@@ -25,10 +28,16 @@ ACTIVE_STATUSES = {
 
 
 class JobService:
-    def __init__(self, db: Session, paths: StoragePaths) -> None:
+    def __init__(
+        self,
+        db: Session,
+        paths: StoragePaths,
+        object_storage: ObjectStorageService | None = None,
+    ) -> None:
         self.db = db
         self.paths = paths
         self.settings = get_settings()
+        self.object_storage = object_storage or ObjectStorageService(paths)
 
     async def create_job(
         self,
@@ -37,19 +46,26 @@ class JobService:
         ocr_mode: str = "auto",
         require_high_risk_review: bool = False,
         require_chapter_review: bool = False,
+        target_language: str = "zh",
+        user_id: str = "usr_legacy",
     ) -> TranslationJob:
         original_filename, extension = self._validate_request(
-            upload.filename, mode, ocr_mode
+            upload.filename, mode, ocr_mode, target_language
         )
         job_id, upload_dir, stored_path = self._allocate_upload(extension)
         try:
             await self._save_upload(upload, stored_path)
+            storage_key = self.object_storage.source_key(user_id, job_id, extension)
+            self.object_storage.upload_file(stored_path, storage_key)
             return self._persist_job(
                 job_id,
+                user_id,
                 original_filename,
                 stored_path,
+                storage_key,
                 mode,
                 ocr_mode,
+                target_language,
                 require_high_risk_review,
                 require_chapter_review,
             )
@@ -68,20 +84,27 @@ class JobService:
         ocr_mode: str = "auto",
         require_high_risk_review: bool = False,
         require_chapter_review: bool = False,
+        target_language: str = "zh",
+        user_id: str = "usr_legacy",
     ) -> TranslationJob:
-        """Create a job from a Gradio temporary file without coupling UI to FastAPI."""
+        """Create a job from a Gradio temporary file without internal HTTP calls."""
         original_filename, extension = self._validate_request(
-            original_filename, mode, ocr_mode
+            original_filename, mode, ocr_mode, target_language
         )
         job_id, upload_dir, stored_path = self._allocate_upload(extension)
         try:
             self._copy_upload(source, stored_path)
+            storage_key = self.object_storage.source_key(user_id, job_id, extension)
+            self.object_storage.upload_file(stored_path, storage_key)
             return self._persist_job(
                 job_id,
+                user_id,
                 original_filename,
                 stored_path,
+                storage_key,
                 mode,
                 ocr_mode,
+                target_language,
                 require_high_risk_review,
                 require_chapter_review,
             )
@@ -90,21 +113,39 @@ class JobService:
             self._cleanup_upload(upload_dir, stored_path)
             raise
 
-    def list_jobs(self) -> list[TranslationJob]:
-        statement = select(TranslationJob).order_by(TranslationJob.created_at.desc())
-        return list(self.db.scalars(statement))
+    def list_jobs(self, user_id: str | None = None) -> list[TranslationJob]:
+        statement = select(TranslationJob)
+        if user_id is not None:
+            statement = statement.where(TranslationJob.user_id == user_id)
+        return list(
+            self.db.scalars(statement.order_by(TranslationJob.created_at.desc()))
+        )
 
-    def get_job(self, job_id: str) -> TranslationJob:
+    def queue_position(self, job_id: str) -> int | None:
+        item = self.db.get(JobQueue, job_id)
+        if item is None or item.status != "QUEUED":
+            return None
+        ahead = self.db.scalar(
+            select(func.count())
+            .select_from(JobQueue)
+            .where(
+                JobQueue.status == "QUEUED",
+                JobQueue.available_at <= item.available_at,
+                JobQueue.created_at < item.created_at,
+            )
+        )
+        return int(ahead or 0) + 1
+
+    def get_job(self, job_id: str, user_id: str | None = None) -> TranslationJob:
         job = self.db.get(TranslationJob, job_id)
-        if job is None:
+        if job is None or (user_id is not None and job.user_id != user_id):
             raise AppError(ErrorCode.JOB_NOT_FOUND, status_code=404)
         return job
 
-    def cancel_job(self, job_id: str) -> TranslationJob:
-        job = self.get_job(job_id)
+    def cancel_job(self, job_id: str, user_id: str | None = None) -> TranslationJob:
+        job = self.get_job(job_id, user_id)
         if job.status not in ACTIVE_STATUSES:
             raise AppError(ErrorCode.INVALID_STATE, status_code=409)
-
         now = datetime.now(timezone.utc)
         job.status = JobStatus.CANCELLED.value
         job.current_stage = "cancelled"
@@ -115,7 +156,7 @@ class JobService:
         return job
 
     def _validate_request(
-        self, filename: str | None, mode: str, ocr_mode: str
+        self, filename: str | None, mode: str, ocr_mode: str, target_language: str
     ) -> tuple[str, str]:
         original_filename = Path(filename or "").name
         extension = Path(original_filename).suffix.lower()
@@ -133,6 +174,12 @@ class JobService:
                 "ocrMode 必须是 auto、off 或 force",
                 status_code=422,
             )
+        if target_language not in SUPPORTED_LANGUAGES:
+            raise AppError(
+                ErrorCode.VALIDATION_ERROR,
+                "不支持该目标语言",
+                status_code=422,
+            )
         return original_filename, extension
 
     def _allocate_upload(self, extension: str) -> tuple[str, Path, Path]:
@@ -144,24 +191,32 @@ class JobService:
     def _persist_job(
         self,
         job_id: str,
+        user_id: str,
         original_filename: str,
         stored_path: Path,
+        storage_key: str,
         mode: str,
         ocr_mode: str,
+        target_language: str,
         require_high_risk_review: bool,
         require_chapter_review: bool,
     ) -> TranslationJob:
         now = datetime.now(timezone.utc)
         job = TranslationJob(
             job_id=job_id,
+            user_id=user_id,
             original_filename=original_filename,
             original_file_path=str(stored_path),
             parsed_markdown_path=None,
             document_ir_path=None,
             document_ir_version=None,
             output_manifest_path=None,
+            source_storage_key=storage_key,
+            output_storage_prefix=self.object_storage.output_prefix(user_id, job_id),
             mode=mode,
             ocr_mode=ocr_mode,
+            source_language=None,
+            target_language=target_language,
             workflow_version=self.settings.workflow_version,
             prompt_version=self.settings.prompt_version,
             max_token_budget=self.settings.job_max_token_budget,
@@ -170,6 +225,10 @@ class JobService:
             require_chapter_review=require_chapter_review,
             status=JobStatus.UPLOADED.value,
             current_stage="uploaded",
+            eta_seconds=None,
+            has_unresolved_risks=False,
+            retention_expires_at=now
+            + timedelta(days=self.settings.file_retention_days),
             created_at=now,
             updated_at=now,
         )

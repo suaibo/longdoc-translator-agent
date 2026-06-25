@@ -9,6 +9,8 @@ from app.models.term_entry import TermEntry
 from app.models.translation_job import TranslationJob
 from app.models.translation_metric import TranslationMetric
 from app.models.workflow_event import WorkflowEvent
+from app.models.user_account import UserAccount
+from app.models.auth_session import AuthSession
 from app.db import langgraph_tables as langgraph_tables
 
 __all__ = [
@@ -23,5 +25,7 @@ __all__ = [
     "TranslationJob",
     "TranslationMetric",
     "WorkflowEvent",
+    "UserAccount",
+    "AuthSession",
     "langgraph_tables",
 ]

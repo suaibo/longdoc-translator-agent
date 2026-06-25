@@ -16,6 +16,7 @@ from openai import (
 from pydantic import ValidationError
 
 from app.agent.prompts import (
+    BOUNDARY_SYSTEM,
     QUALITY_SYSTEM,
     REVISION_SYSTEM,
     STORY_MEMORY_SYSTEM,
@@ -27,6 +28,7 @@ from app.core.config import get_settings
 from app.core.errors import AppError, ErrorCode
 from app.core.telemetry import span
 from app.schemas.llm import (
+    BoundaryDecisionResult,
     LLMResult,
     LLMUsage,
     QualityResult,
@@ -69,9 +71,7 @@ class LLMService:
                 self.settings.llm_base_url,
             )
         self.client = client
-        self.endpoints = [
-            LLMEndpoint("deepseek", client, self.settings.llm_model)
-        ]
+        self.endpoints = [LLMEndpoint("deepseek", client, self.settings.llm_model)]
         if fallback_client is not None:
             self.endpoints.append(
                 LLMEndpoint(
@@ -80,10 +80,7 @@ class LLMService:
                     self.settings.llm_fallback_model or self.settings.llm_model,
                 )
             )
-        elif (
-            self.settings.llm_fallback_api_key
-            and self.settings.llm_fallback_base_url
-        ):
+        elif self.settings.llm_fallback_api_key and self.settings.llm_fallback_base_url:
             self.endpoints.append(
                 LLMEndpoint(
                     "fallback",
@@ -96,11 +93,19 @@ class LLMService:
             )
         self.sleep = sleep
 
-    def extract_terms(self, text: str) -> tuple[list[TermSuggestion], LLMResult]:
+    def extract_terms(
+        self, text: str, target_language: str = "zh"
+    ) -> tuple[list[TermSuggestion], LLMResult]:
         result = self._chat(
             [
                 {"role": "system", "content": TERM_EXTRACTION_SYSTEM},
-                {"role": "user", "content": text},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {"targetLanguage": target_language, "text": text},
+                        ensure_ascii=False,
+                    ),
+                },
             ],
             json_output=True,
             task="terms",
@@ -115,6 +120,50 @@ class LLMService:
             ) from exc
         return parsed.terms, result
 
+    def analyze_boundary(
+        self,
+        left: str,
+        right: str,
+        signals: list[str],
+        source_language: str,
+    ) -> tuple[BoundaryDecisionResult, LLMResult]:
+        result = self._chat(
+            [
+                {"role": "system", "content": BOUNDARY_SYSTEM},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "sourceLanguage": source_language,
+                            "leftFragment": left,
+                            "rightFragment": right,
+                            "signals": signals,
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+            json_output=True,
+            task="boundary",
+        )
+        try:
+            parsed = BoundaryDecisionResult.model_validate_json(result.content)
+        except ValidationError as exc:
+            raise AppError(
+                ErrorCode.LLM_CALL_FAILED,
+                f"DeepSeek 边界判断 JSON 校验失败: {exc}",
+                status_code=502,
+            ) from exc
+        decision = parsed.decision.upper()
+        if decision not in {"CONTINUE", "SPLIT", "UNCERTAIN"}:
+            raise AppError(
+                ErrorCode.LLM_CALL_FAILED,
+                f"DeepSeek 返回未知边界决策: {parsed.decision}",
+                status_code=502,
+            )
+        parsed.decision = decision
+        return parsed, result
+
     def translate_chunk(
         self,
         source_text: str,
@@ -123,6 +172,7 @@ class LLMService:
         previous_summary: str | None,
         story_memory: dict[str, Any] | None = None,
         profile: str = "text",
+        target_language: str = "zh",
     ) -> LLMResult:
         context = {
             "confirmedTerms": terms,
@@ -131,6 +181,7 @@ class LLMService:
             "sourceChunk": source_text,
             "storyMemory": story_memory or {},
             "translationProfile": profile,
+            "targetLanguage": target_language,
         }
         return self._chat(
             [
@@ -139,8 +190,7 @@ class LLMService:
                     "role": "user",
                     "content": json.dumps(context, ensure_ascii=False),
                 },
-            ]
-            ,
+            ],
             task="translation",
         )
 
@@ -181,12 +231,13 @@ class LLMService:
                         ensure_ascii=False,
                     ),
                 },
-            ]
-            ,
+            ],
             task="summary",
         )
 
-    def check_quality(self, original: str, translated: str) -> tuple[QualityResult, LLMResult]:
+    def check_quality(
+        self, original: str, translated: str
+    ) -> tuple[QualityResult, LLMResult]:
         result = self._chat(
             [
                 {"role": "system", "content": QUALITY_SYSTEM},
@@ -261,9 +312,7 @@ class LLMService:
                             messages=messages,
                             max_tokens=self.settings.llm_max_output_tokens,
                             response_format=(
-                                {"type": "json_object"}
-                                if json_output
-                                else None
+                                {"type": "json_object"} if json_output else None
                             ),
                         )
                     content = response.choices[0].message.content or ""
@@ -276,9 +325,7 @@ class LLMService:
                         model=model,
                         usage=LLMUsage(
                             prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
-                            completion_tokens=getattr(
-                                usage, "completion_tokens", 0
-                            )
+                            completion_tokens=getattr(usage, "completion_tokens", 0)
                             or 0,
                             total_tokens=getattr(usage, "total_tokens", 0) or 0,
                         ),
@@ -290,9 +337,7 @@ class LLMService:
                     if attempt >= self.settings.llm_max_retries:
                         break
                     retries += 1
-                    self.sleep(
-                        self.settings.llm_retry_base_seconds * (2**attempt)
-                    )
+                    self.sleep(self.settings.llm_retry_base_seconds * (2**attempt))
                 except (BadRequestError, APIError, ValueError) as exc:
                     last_error = exc
                     # Invalid requests and invalid content are deterministic;
@@ -316,6 +361,7 @@ class LLMService:
             "translation": self.settings.llm_translation_model,
             "summary": self.settings.llm_summary_model,
             "quality": self.settings.llm_quality_model,
+            "boundary": self.settings.llm_boundary_model,
         }.get(task, "")
         return routed or endpoint.default_model
 

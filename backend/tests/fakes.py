@@ -8,7 +8,7 @@ class FakeLLM:
     def __init__(self) -> None:
         self.settings = SimpleNamespace(llm_model="deepseek-test")
 
-    def extract_terms(self, text: str):
+    def extract_terms(self, text: str, target_language: str = "zh"):
         terms = (
             [
                 TermSuggestion(
@@ -30,6 +30,7 @@ class FakeLLM:
         previous_summary: str | None,
         story_memory=None,
         profile: str = "text",
+        target_language: str = "zh",
     ) -> LLMResult:
         translated = source_text.replace(
             "checkpoint", terms.get("checkpoint", "检查点")

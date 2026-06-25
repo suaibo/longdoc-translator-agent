@@ -78,6 +78,13 @@ def client(db_session: Session, tmp_path: Path) -> Generator[TestClient]:
     app.dependency_overrides[get_storage_paths] = lambda: paths
     app.dependency_overrides[get_background_worker] = lambda: NoopWorker()
     with TestClient(app) as test_client:
+        registered = test_client.post(
+            "/api/auth/register",
+            json={"username": "testuser", "password": "test-password"},
+        )
+        assert registered.status_code == 200
+        token = registered.json()["data"]["token"]
+        test_client.headers.update({"Authorization": f"Bearer {token}"})
         yield test_client
 
 

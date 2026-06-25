@@ -2,6 +2,7 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+from app.services.auth_service import AuthService
 from app.storage.paths import StoragePaths
 from app.ui import handlers
 
@@ -13,6 +14,7 @@ def test_gradio_handler_creates_and_reads_job(
     source.write_text("# Paper\n\nBody.", encoding="utf-8")
     paths = StoragePaths(tmp_path / "storage")
     paths.ensure_root()
+    _user, token = AuthService(db_session).register("ui-user", "test-password")
 
     monkeypatch.setattr(handlers, "SessionLocal", lambda: db_session)
     monkeypatch.setattr(handlers, "get_storage_paths", lambda: paths)
@@ -22,14 +24,16 @@ def test_gradio_handler_creates_and_reads_job(
         lambda: type("Worker", (), {"enqueue": lambda self, job_id: None})(),
     )
 
-    message, _dropdown, job_id = handlers.create_job(str(source), "paper")
+    message, _dropdown, job_id = handlers.create_job(
+        token, str(source), "paper", "auto", "zh"
+    )
 
     assert job_id is not None
-    assert job_id in message
-    result = handlers.refresh_dashboard(job_id)
+    assert "后台队列" in message
+    result = handlers.refresh_dashboard(token, job_id)
     summary, terms, chunks, risks, events, reviews = result[:6]
     outputs = result[6:]
-    assert "UPLOADED" in summary
+    assert "等待处理" in summary
     assert terms == []
     assert chunks == []
     assert risks == []

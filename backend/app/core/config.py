@@ -22,9 +22,19 @@ class Settings(BaseSettings):
     app_host: str = "127.0.0.1"
     app_port: int = 8000
     worker_enabled: bool = False
+    worker_max_concurrency: int = 5
+    user_max_concurrent_jobs: int = 5
     database_url: str = DEFAULT_DATABASE_URL
     database_connect_timeout: int = 5
     storage_root: Path = Field(default=DEFAULT_STORAGE_ROOT)
+    storage_backend: str = "local"
+    s3_endpoint_url: str = ""
+    s3_region: str = "auto"
+    s3_bucket: str = ""
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
+    s3_presign_seconds: int = 900
+    file_retention_days: int = 30
     max_upload_bytes: int = 50 * 1024 * 1024
     upload_read_size: int = 1024 * 1024
     chunk_max_tokens: int = 1800
@@ -33,6 +43,7 @@ class Settings(BaseSettings):
     chunk_hard_max_tokens: int = 2400
     chunk_min_tokens: int = 120
     semantic_boundary_threshold: float = 0.58
+    boundary_llm_max_retries: int = 2
     table_max_rows: int = 20
 
     llm_base_url: str = "https://api.deepseek.com"
@@ -42,6 +53,7 @@ class Settings(BaseSettings):
     llm_translation_model: str = ""
     llm_summary_model: str = ""
     llm_quality_model: str = ""
+    llm_boundary_model: str = ""
     llm_timeout_seconds: float = 120
     llm_max_retries: int = 3
     llm_retry_base_seconds: float = 1
@@ -65,11 +77,21 @@ class Settings(BaseSettings):
     default_ocr_mode: str = "auto"
     docling_artifacts_path: Path | None = None
     docling_page_batch_size: int = 1
+    parser_max_concurrency: int = 1
+    auth_session_days: int = 30
 
     @field_validator("storage_root", mode="after")
     @classmethod
     def resolve_storage_root(cls, value: Path) -> Path:
         return value if value.is_absolute() else PROJECT_ROOT / value
+
+    @field_validator("storage_backend")
+    @classmethod
+    def validate_storage_backend(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"local", "s3"}:
+            raise ValueError("STORAGE_BACKEND must be local or s3")
+        return normalized
 
 
 @lru_cache

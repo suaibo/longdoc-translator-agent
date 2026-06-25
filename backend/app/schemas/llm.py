@@ -35,3 +35,10 @@ class StoryEntity(BaseModel):
 
 class StoryMemoryResult(BaseModel):
     entities: list[StoryEntity] = Field(default_factory=list)
+
+
+class BoundaryDecisionResult(BaseModel):
+    decision: str
+    confidence: float = 0.0
+    reason: str
+    sentence_complete: bool = Field(alias="sentenceComplete")

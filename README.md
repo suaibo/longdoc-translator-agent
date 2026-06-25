@@ -1,112 +1,87 @@
 # LongDoc Translator Agent
 
-面向论文、技术报告等长文档的结构化翻译 Agent。项目重点不是封装一次 LLM 调用，而是把长文档翻译拆成可解析、可审核、可恢复、可追踪的工程流程。
+面向论文、技术报告和长篇文本的结构化翻译 Agent。系统不是一次 LLM 调用的封装，而是一个可分支、可暂停、可恢复、可追踪的 LangGraph 工作流。
 
 ```text
-上传文档
+登录 -> 上传文档 -> 后台 Worker 持续运行
 -> 结构化解析与版面修正
--> 结构边界优先的混合切块
--> 术语抽取与人工确认
--> 分块翻译与滑动窗口记忆
+-> DeepSeek 辅助疑似语义边界判断
+-> 术语人工确认
+-> 分块翻译、质量检查与上下文记忆
 -> 检查点恢复
--> 译文、结构资产与风险报告
+-> Markdown / HTML / 原文件 / 结果包
 ```
 
-## 当前状态
+用户可以关闭页面或退出登录，云端 Worker 仍会继续处理；稍后重新登录即可查看进度并下载结果。
 
-已经实现：
+## 当前能力
 
-- FastAPI REST API 与 Gradio 工作台，同一进程运行。
-- PostgreSQL 16、SQLAlchemy 2.0、Psycopg 3 和 Alembic。
-- Docker Compose 开发库与独立测试库。
-- PDF、Markdown、TXT 上传，任务列表、详情、取消和多任务排队。
-- Docling PDF 解析适配，Markdown/TXT 统一转换为 `ParsedBlock[]`。
-- 双栏阅读顺序修正、重复页眉页脚过滤。
-- 章节、段落、表格、公式和代码的结构感知切块。
-- 大表按完整数据行分组，并保留 caption/header 元数据。
-- 表格、公式、引用、长段落和解析异常风险标记。
-- Gradio 上传、任务选择、轮询、chunk/术语/风险查看和输出下载入口。
-- 真实 PostgreSQL 集成测试。
-- DocumentIR Lite、章节树、TableIR/FormulaIR/FigureIR 和 PDF 结构资产。
-- target/soft/hard token 预算、本地语义边界和可解释 chunk 字段。
-- DeepSeek 术语抽取、术语人工确认和真实翻译。
-- LangGraph `StateGraph`、PostgreSQL checkpointer、人工中断和恢复。
-- PostgreSQL 租约队列、独立 Worker、进程恢复和 chunk 边界取消。
-- 滑动窗口摘要、分类重试、调用指标和翻译质量检查。
-- 工作流节点事件时间线、失败节点展示和节点耗时记录。
-- 任务级真实 token 用量与可配置费用预算限制。
-- 可选高风险 chunk 与章节结束人工审核，支持持久化中断和恢复。
-- 术语/翻译/摘要/质检模型路由、单一备用供应商 fallback。
-- HIGH 质量问题的有限次数自动修订循环。
-- 小说模式人物/地点/设定记忆与章节长期摘要。
-- 表格、公式、引用的嵌套 LangGraph 结构校验子图。
-- OpenTelemetry 节点/LLM span、脱敏 replay JSONL 和离线评测脚本。
-- 多任务租约队列与可独立启动的 Worker 进程。
-- Markdown、HTML、manifest、原始文件与 `result.zip`。
+- 简化账号系统、30 天会话、任务所有权和接口隔离。
+- PostgreSQL 16、SQLAlchemy 2.0、Psycopg 3、Alembic。
+- PostgreSQL 租约队列、独立 Worker、每用户最多 5 个并发任务。
+- 本地开发存储与 S3 兼容对象存储，可跨 Web/Worker 重启恢复文件。
+- PDF、Markdown、TXT；Docling、RapidOCR、DocumentIR Lite。
+- 双栏阅读顺序修正、页眉页脚过滤、caption 关联和 OCR 风险。
+- 表格原子性、大表按完整行分组、公式和引用结构保护。
+- 结构边界优先、DeepSeek 疑似边界判断、token 上限兜底。
+- 自动检测源语言；支持中、英、日、韩、法、德、西、葡、俄、阿十种目标语言。
+- LangGraph 条件边、有限重试、规则降级、chunk 回环和人工 `interrupt/resume`。
+- 术语确认、滑动窗口摘要、质量检查、有限修订和用户可读风险。
+- Gradio 任务工作台：历史任务、队列位置、进度、ETA、术语、风险、时间线和下载。
+- 双语/译文 Markdown、HTML、翻译报告、原始文件、manifest 和 `result.zip`。
 
-上传任务会由后台 Worker 自动推进到术语确认；用户确认术语后，LangGraph 从原中断点继续翻译。未配置 `LLM_API_KEY` 时，任务会明确进入 `FAILED`，不会回退到 mock 翻译。
-
-仍在开发：
-
-- 当前规划项均已实现，后续重点转为性能压测与部署加固。
+未配置 `LLM_API_KEY` 时，真实 LLM 节点会明确失败，不使用 mock 结果冒充翻译。
 
 ## 技术栈
 
-- 后端：Python 3.12、FastAPI、Pydantic
+- 后端：Python、FastAPI、Pydantic
 - 数据库：PostgreSQL 16、SQLAlchemy 2.0、Psycopg 3、Alembic
-- 前端：Gradio Blocks，挂载于 FastAPI `/ui`
-- Agent：LangGraph 1.x、PostgreSQL checkpointer
-- 文档解析：Docling、RapidOCR
+- Agent：LangGraph、PostgreSQL checkpointer
+- 前端：Gradio Blocks，挂载在 `/ui`
+- 解析：Docling、RapidOCR
 - LLM：DeepSeek OpenAI-compatible API
-- 文件存储：本地文件系统
+- 文件：本地开发目录或 S3 兼容对象存储
 
 ## 快速开始
-
-要求：
-
-- Python 3.11+，推荐 3.12
-- Docker Desktop
-- Windows PowerShell
-- DeepSeek API Key（调用 LLM 功能时需要）
-
-配置环境：
 
 ```powershell
 Copy-Item .env.example .env
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+.\scripts\start.ps1
 ```
 
-在 `.env` 中填写：
+必须在 `.env` 中配置：
 
 ```text
 LLM_BASE_URL=https://api.deepseek.com
 LLM_API_KEY=your_deepseek_key
 LLM_MODEL=deepseek-v4-flash
-LLM_TRANSLATION_MODEL=
-LLM_QUALITY_MODEL=
-LLM_FALLBACK_BASE_URL=
-LLM_FALLBACK_API_KEY=
-LLM_FALLBACK_MODEL=
-MAX_REVISION_ATTEMPTS=1
-OTEL_EXPORTER_OTLP_ENDPOINT=
-REPLAY_INCLUDE_TEXT=False
-JOB_MAX_TOKEN_BUDGET=2000000
-JOB_MAX_COST_USD=0
-LLM_INPUT_COST_PER_MILLION=0
-LLM_OUTPUT_COST_PER_MILLION=0
 ```
 
-API Key 只能保存在本地 `.env`，不要提交到 Git。
-费用上限为 `0` 时禁用费用拦截；如需启用，应按当前 DeepSeek 模型价格填写每百万输入/输出 token 单价。
+云服务器推荐配置：
 
-启动数据库、执行迁移并运行应用：
+```text
+WORKER_ENABLED=False
+WORKER_MAX_CONCURRENCY=5
+USER_MAX_CONCURRENT_JOBS=5
+STORAGE_BACKEND=s3
+S3_ENDPOINT_URL=https://your-s3-compatible-endpoint
+S3_BUCKET=longdoc-translator
+S3_ACCESS_KEY_ID=...
+S3_SECRET_ACCESS_KEY=...
+```
+
+生产环境分别启动 Web 与 Worker：
 
 ```powershell
-.\scripts\start.ps1
+cd backend
+$env:PYTHONPATH=(Get-Location).Path
+..\.venv\Scripts\python.exe -m alembic upgrade head
+..\.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-脚本会在后台启动独立 Worker，并在前台启动 FastAPI/Gradio。也可单独运行：
+另一个进程：
 
 ```powershell
 cd backend
@@ -114,83 +89,40 @@ $env:PYTHONPATH=(Get-Location).Path
 ..\.venv\Scripts\python.exe -m app.worker
 ```
 
-也可以逐步运行：
-
-```powershell
-docker compose up -d db
-cd backend
-$env:PYTHONPATH=(Get-Location).Path
-..\.venv\Scripts\python.exe -m alembic upgrade head
-..\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-```
-
 访问：
 
-- Gradio 工作台：<http://127.0.0.1:8000/ui>
+- 工作台：<http://127.0.0.1:8000/ui>
 - OpenAPI：<http://127.0.0.1:8000/docs>
 - 健康检查：<http://127.0.0.1:8000/api/health>
 
-首次解析 PDF 前，可预下载 Docling 模型：
-
-```powershell
-.\.venv\Scripts\docling-tools.exe models download layout tableformerv2
-```
-
-## 数据库迁移
-
-应用启动只检查数据库连接，不自动建表或修改表结构。
-
-```powershell
-cd backend
-$env:PYTHONPATH=(Get-Location).Path
-..\.venv\Scripts\python.exe -m alembic current
-..\.venv\Scripts\python.exe -m alembic upgrade head
-```
-
-当前 PostgreSQL schema 是新的 MVP 基线，不提供 SQLite 数据迁移或双库兼容。
-
 ## 测试
-
-完整测试：
 
 ```powershell
 .\scripts\test.ps1
 ```
 
-脚本会启动端口 `5433` 的独立 PostgreSQL 测试库，执行 Alembic 后运行 pytest。测试数据通过事务回滚隔离，不写入开发库。
-
-离线评测：
+或直接运行：
 
 ```powershell
-.\.venv\Scripts\python.exe backend\scripts\evaluate_replay.py storage\outputs\{jobId}\replay.jsonl
+docker compose --profile test up -d test-db
+.\.venv\Scripts\python.exe -m pytest backend\tests -q
 ```
+
+当前测试覆盖账号隔离、任务队列、LangGraph 分支和回环、DeepSeek JSON 校验、解析/切分、人工中断、恢复与输出。
 
 ## 项目目录
 
 ```text
-longdoc-translator-agent/
-├─ backend/
-│  ├─ alembic/                 数据库迁移
-│  ├─ app/
-│  │  ├─ api/                  REST API
-│  │  ├─ core/                 配置、错误、响应和日志
-│  │  ├─ db/                   PostgreSQL Session
-│  │  ├─ models/               SQLAlchemy ORM
-│  │  ├─ schemas/              Pydantic DTO
-│  │  ├─ services/             领域服务
-│  │  ├─ storage/              文件路径约定
-│  │  ├─ ui/                   Gradio 界面与事件处理
-│  │  └─ main.py               FastAPI + Gradio 入口
-│  ├─ tests/
-│  ├─ alembic.ini
-│  └─ requirements.txt
-├─ docs/
-├─ samples/
-├─ scripts/
-├─ storage/                    运行时文件，不提交
-├─ docker-compose.yml
-├─ .env.example
-└─ AGENTS.md
+backend/app/
+  agent/       LangGraph 状态、节点、条件边和子图
+  api/         认证、任务、术语、审核与输出接口
+  models/      PostgreSQL ORM
+  services/    解析、切分、翻译、队列、风险和存储服务
+  storage/     本地路径与 S3 兼容对象存储
+  ui/          Gradio 工作台
+backend/alembic/  数据库迁移
+backend/tests/    单元与 PostgreSQL 集成测试
+docs/             需求、架构、接口、数据库、UI 和测试文档
 ```
 
 ## 文档
@@ -202,6 +134,11 @@ longdoc-translator-agent/
 - [测试计划](docs/测试计划.md)
 - [Gradio UI 设计](docs/前端UI设计.md)
 - [文档结构与输出策略](docs/文档结构与输出策略.md)
+- [最新实施计划](docs/实施计划.md)
+
+## 后续方向
+
+翻译/双语批注 PDF、图片文字翻译与导出、预翻译和风格 Prompt、用户选择模型、在线编辑与版本历史、SSE/WebSocket 实时推送。
 
 ## License
 

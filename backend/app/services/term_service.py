@@ -33,7 +33,8 @@ class TermService:
         for start in range(0, len(content), self.BATCH_CHARS):
             BudgetService(self.db).assert_available(job_id)
             suggestions, result = llm.extract_terms(
-                content[start : start + self.BATCH_CHARS]
+                content[start : start + self.BATCH_CHARS],
+                job.target_language,
             )
             MetricService(self.db).record(
                 job_id,

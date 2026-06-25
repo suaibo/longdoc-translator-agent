@@ -3,6 +3,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.api.dependencies import CurrentUser
 from app.core.response import success
 from app.db.session import get_db
 from app.schemas.workflow_event import WorkflowEventResponse
@@ -16,9 +17,10 @@ router = APIRouter(prefix="/api/jobs", tags=["events"])
 @router.get("/{job_id}/events")
 def list_events(
     job_id: str,
+    user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ) -> dict[str, Any]:
-    JobService(db, get_storage_paths()).get_job(job_id)
+    JobService(db, get_storage_paths()).get_job(job_id, user.user_id)
     events = EventService(db).list_events(job_id)
     data = [
         WorkflowEventResponse.model_validate(

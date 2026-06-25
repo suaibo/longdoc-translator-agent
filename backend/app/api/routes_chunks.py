@@ -5,13 +5,14 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.errors import AppError, ErrorCode
+from app.api.dependencies import CurrentUser
 from app.core.response import success
 from app.db.session import get_db
 from app.models.document_chunk import DocumentChunk
 from app.models.risk_item import RiskItem
-from app.models.translation_job import TranslationJob
 from app.schemas.chunk_response import ChunkResponse
+from app.services.job_service import JobService
+from app.storage.paths import get_storage_paths
 
 router = APIRouter(prefix="/api/jobs/{job_id}/chunks", tags=["chunks"])
 
@@ -19,10 +20,10 @@ router = APIRouter(prefix="/api/jobs/{job_id}/chunks", tags=["chunks"])
 @router.get("")
 def list_chunks(
     job_id: str,
+    user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ) -> dict[str, Any]:
-    if db.get(TranslationJob, job_id) is None:
-        raise AppError(ErrorCode.JOB_NOT_FOUND, status_code=404)
+    JobService(db, get_storage_paths()).get_job(job_id, user.user_id)
     chunks = list(
         db.scalars(
             select(DocumentChunk)

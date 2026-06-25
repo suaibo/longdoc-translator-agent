@@ -66,6 +66,7 @@ class TranslationService:
                 if self._job_mode(job_id) == "novel"
                 else None,
                 self._profile(chunk),
+                self._target_language(job_id),
             )
             chunk.translated_text = result.content
             chunk.status = ChunkStatus.COMPLETED.value
@@ -121,9 +122,7 @@ class TranslationService:
         )
         for _ in range(get_settings().max_revision_attempts):
             high_issues = [
-                issue
-                for issue in quality.issues
-                if issue.severity.upper() == "HIGH"
+                issue for issue in quality.issues if issue.severity.upper() == "HIGH"
             ]
             if not high_issues:
                 break
@@ -213,9 +212,7 @@ class TranslationService:
         self.db.commit()
         return risks
 
-    def _section_summary(
-        self, job_id: str, chunk: DocumentChunk
-    ) -> str | None:
+    def _section_summary(self, job_id: str, chunk: DocumentChunk) -> str | None:
         summaries = list(
             self.db.scalars(
                 select(DocumentChunk.context_summary)
@@ -229,7 +226,13 @@ class TranslationService:
                 .limit(3)
             )
         )
-        return "\n".join(reversed([summary for summary in summaries if summary])) or None
+        return (
+            "\n".join(reversed([summary for summary in summaries if summary])) or None
+        )
+
+    def _target_language(self, job_id: str) -> str:
+        job = self.db.get(TranslationJob, job_id)
+        return job.target_language if job else "zh"
 
     def _job_mode(self, job_id: str) -> str:
         job = self.db.get(TranslationJob, job_id)

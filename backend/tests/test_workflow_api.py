@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.document_chunk import DocumentChunk
@@ -9,6 +10,7 @@ from app.models.risk_item import RiskItem
 from app.models.review_request import ReviewRequest
 from app.models.term_entry import TermEntry
 from app.models.translation_job import TranslationJob
+from app.models.user_account import UserAccount
 from app.services.event_service import EventService
 
 
@@ -22,8 +24,11 @@ def add_job(
     source = tmp_path / f"{job_id}.md"
     source.write_text("# Paper", encoding="utf-8")
     now = datetime.now(timezone.utc)
+    owner = db.scalar(select(UserAccount).where(UserAccount.username == "testuser"))
+    assert owner is not None
     job = TranslationJob(
         job_id=job_id,
+        user_id=owner.user_id,
         original_filename="paper.md",
         original_file_path=str(source),
         mode="paper",
