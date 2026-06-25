@@ -36,6 +36,10 @@ class WorkflowNodes:
             job = self._job(db, state["job_id"])
             self._assert_version(job)
             if job.document_ir_path and Path(job.document_ir_path).is_file():
+                job.status = JobStatus.PARSED.value
+                job.current_stage = "parse_document"
+                job.updated_at = datetime.now(timezone.utc)
+                db.commit()
                 return {"workflow_version": job.workflow_version}
             now = datetime.now(timezone.utc)
             job.current_stage = "parse_document"
@@ -62,6 +66,7 @@ class WorkflowNodes:
             job.parsed_markdown_path = str(paths.parsed_markdown(job.job_id))
             job.document_ir_path = str(paths.document_ir(job.job_id))
             job.document_ir_version = document.version
+            job.status = JobStatus.PARSED.value
             job.updated_at = datetime.now(timezone.utc)
             CheckpointService(db).save(
                 job.job_id,
@@ -118,9 +123,7 @@ class WorkflowNodes:
             db.commit()
             return {}
 
-    def interrupt_for_term_review(
-        self, state: TranslationState
-    ) -> dict[str, Any]:
+    def interrupt_for_term_review(self, state: TranslationState) -> dict[str, Any]:
         with SessionLocal() as db:
             count = db.scalar(
                 select(func.count())
@@ -157,14 +160,17 @@ class WorkflowNodes:
             translated = service.translate(
                 job.job_id, chunk, state.get("previous_summary")
             )
-            completed = db.scalar(
-                select(func.count())
-                .select_from(DocumentChunk)
-                .where(
-                    DocumentChunk.job_id == job.job_id,
-                    DocumentChunk.status == ChunkStatus.COMPLETED.value,
+            completed = (
+                db.scalar(
+                    select(func.count())
+                    .select_from(DocumentChunk)
+                    .where(
+                        DocumentChunk.job_id == job.job_id,
+                        DocumentChunk.status == ChunkStatus.COMPLETED.value,
+                    )
                 )
-            ) or 0
+                or 0
+            )
             job.completed_chunks = completed
             job.progress_percent = (
                 completed / job.total_chunks * 100 if job.total_chunks else 0
@@ -183,7 +189,9 @@ class WorkflowNodes:
             job.current_stage = "summarize_chunk_context"
             chunk = db.get(DocumentChunk, state["current_chunk_id"])
             if chunk is None:
-                raise AppError(ErrorCode.INVALID_STATE, "当前 chunk 不存在", status_code=409)
+                raise AppError(
+                    ErrorCode.INVALID_STATE, "当前 chunk 不存在", status_code=409
+                )
             summary = TranslationService(db).summarize(job.job_id, chunk)
             return {"previous_summary": summary}
 
@@ -193,13 +201,13 @@ class WorkflowNodes:
             job.current_stage = "mark_risks"
             chunk = db.get(DocumentChunk, state["current_chunk_id"])
             if chunk is None:
-                raise AppError(ErrorCode.INVALID_STATE, "当前 chunk 不存在", status_code=409)
+                raise AppError(
+                    ErrorCode.INVALID_STATE, "当前 chunk 不存在", status_code=409
+                )
             TranslationService(db).mark_quality_risks(job.job_id, chunk)
             return {}
 
-    def update_long_term_memory(
-        self, state: TranslationState
-    ) -> dict[str, Any]:
+    def update_long_term_memory(self, state: TranslationState) -> dict[str, Any]:
         with SessionLocal() as db:
             job = self._job(db, state["job_id"])
             if job.mode != "novel":
@@ -213,9 +221,7 @@ class WorkflowNodes:
             MemoryService(db).update(job.job_id, chunk)
         return {}
 
-    def interrupt_for_high_risk_review(
-        self, state: TranslationState
-    ) -> dict[str, Any]:
+    def interrupt_for_high_risk_review(self, state: TranslationState) -> dict[str, Any]:
         with SessionLocal() as db:
             job = self._job(db, state["job_id"])
             if not job.require_high_risk_review:
@@ -259,9 +265,7 @@ class WorkflowNodes:
             )
         return {"risk_review_result": {"approved": True}}
 
-    def interrupt_for_chapter_review(
-        self, state: TranslationState
-    ) -> dict[str, Any]:
+    def interrupt_for_chapter_review(self, state: TranslationState) -> dict[str, Any]:
         with SessionLocal() as db:
             job = self._job(db, state["job_id"])
             if not job.require_chapter_review:
@@ -336,7 +340,9 @@ class WorkflowNodes:
             job.updated_at = now
             service.generate_report(job.job_id)
             service.generate_manifest_and_package(job.job_id)
-            CheckpointService(db).save(job.job_id, "generate_report", {"completed": True})
+            CheckpointService(db).save(
+                job.job_id, "generate_report", {"completed": True}
+            )
             db.commit()
         return {}
 

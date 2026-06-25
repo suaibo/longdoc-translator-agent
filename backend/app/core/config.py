@@ -63,6 +63,8 @@ class Settings(BaseSettings):
 
     ocr_engine: str = "rapidocr-onnxruntime"
     default_ocr_mode: str = "auto"
+    docling_artifacts_path: Path | None = None
+    docling_page_batch_size: int = 1
 
     @field_validator("storage_root", mode="after")
     @classmethod

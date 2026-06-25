@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.core.config import get_settings
 from app.core.errors import AppError, ErrorCode
 from app.models.enums import RiskType
 from app.schemas.parser import BlockBoundingBox, BlockKind, ParsedBlock
@@ -288,4 +289,24 @@ def test_real_docling_rejects_malformed_pdf(tmp_path: Path) -> None:
         ParserService().parse(source, ocr_mode="off")
 
     assert caught.value.code == ErrorCode.DOCLING_PARSE_FAILED
-    assert "not valid" in caught.value.message
+    assert "Data format error" in caught.value.message
+
+
+def test_docling_artifacts_path_requires_complete_model_set(
+    tmp_path: Path, monkeypatch
+) -> None:
+    model_root = tmp_path / "models"
+    for name in (
+        "docling-project--docling-layout-heron",
+        "docling-project--TableFormerV2",
+        "RapidOcr",
+    ):
+        (model_root / name).mkdir(parents=True)
+    monkeypatch.setenv("DOCLING_ARTIFACTS_PATH", str(model_root))
+    get_settings.cache_clear()
+    try:
+        assert ParserService._resolve_docling_artifacts_path() == model_root
+        (model_root / "RapidOcr").rmdir()
+        assert ParserService._resolve_docling_artifacts_path() is None
+    finally:
+        get_settings.cache_clear()

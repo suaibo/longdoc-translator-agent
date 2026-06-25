@@ -111,7 +111,17 @@ class WorkerService:
             if job.status != JobStatus.FAILED.value:
                 raise AppError(ErrorCode.INVALID_STATE, status_code=409)
             CheckpointService(db).assert_resume_compatible(job)
-            job.status = JobStatus.TRANSLATING.value
+            pre_translation_stages = {
+                "split_sections",
+                "extract_terms",
+                "interrupt_for_term_review",
+            }
+            if job.current_stage == "parse_document":
+                job.status = JobStatus.UPLOADED.value
+            elif job.current_stage in pre_translation_stages:
+                job.status = JobStatus.PARSED.value
+            else:
+                job.status = JobStatus.TRANSLATING.value
             job.current_stage = "resume"
             job.error_code = None
             job.error_message = None
@@ -120,9 +130,7 @@ class WorkerService:
             db.commit()
         self.enqueue(job_id)
 
-    def resume_review(
-        self, job_id: str, payload: dict[str, Any] | None = None
-    ) -> None:
+    def resume_review(self, job_id: str, payload: dict[str, Any] | None = None) -> None:
         self.enqueue(job_id, payload or {"confirmed": True}, priority=10)
 
     def shutdown(self) -> None:
@@ -156,9 +164,7 @@ class WorkerService:
             db.commit()
             return item.job_id, payload
 
-    def _execute(
-        self, job_id: str, resume_payload: dict[str, Any] | None
-    ) -> None:
+    def _execute(self, job_id: str, resume_payload: dict[str, Any] | None) -> None:
         heartbeat_stop = Event()
         heartbeat = Thread(
             target=self._heartbeat,

@@ -1,5 +1,6 @@
 import re
 from collections.abc import Callable
+from gc import collect
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ class ParserService:
         converter_factory: Callable[[str], Any] | None = None,
     ) -> None:
         self.normalizer = normalizer or LayoutNormalizer()
+        self.has_custom_converter = converter_factory is not None
         self.converter_factory = converter_factory or self._build_docling_converter
 
     def parse(
@@ -74,11 +76,51 @@ class ParserService:
     def _parse_pdf(
         self, source: Path, ocr_mode: str, assets_dir: Path | None
     ) -> list[ParsedBlock]:
-        converter = self.converter_factory(ocr_mode)
-        result = converter.convert(source, raises_on_error=True)
-        document = result.document
+        if self.has_custom_converter:
+            result = self.converter_factory(ocr_mode).convert(
+                source, raises_on_error=True
+            )
+            return self._docling_blocks(result.document, assets_dir)
+
+        import pypdfium2 as pdfium
+
+        pdf = pdfium.PdfDocument(source)
+        page_count = len(pdf)
+        pdf.close()
         blocks: list[ParsedBlock] = []
-        for index, (item, depth) in enumerate(document.iterate_items()):
+        batch_size = max(1, get_settings().docling_page_batch_size)
+        for page_start in range(1, page_count + 1, batch_size):
+            page_end = min(page_count, page_start + batch_size - 1)
+            converter = self.converter_factory(ocr_mode)
+            result = converter.convert(
+                source,
+                raises_on_error=True,
+                page_range=(page_start, page_end),
+            )
+            blocks.extend(
+                self._docling_blocks(
+                    result.document,
+                    assets_dir,
+                    start_index=len(blocks),
+                )
+            )
+            # Native page buffers can accumulate on Windows. Releasing each
+            # batch prevents later pages from failing with std::bad_alloc.
+            del result, converter
+            collect()
+        return blocks
+
+    def _docling_blocks(
+        self,
+        document: Any,
+        assets_dir: Path | None,
+        *,
+        start_index: int = 0,
+    ) -> list[ParsedBlock]:
+        blocks: list[ParsedBlock] = []
+        for index, (item, depth) in enumerate(
+            document.iterate_items(), start=start_index
+        ):
             label = item.label.value
             kind = self._kind_from_docling_label(label)
             text = getattr(item, "text", "") or ""
@@ -224,10 +266,17 @@ class ParserService:
         from docling.datamodel.pipeline_options import (
             PdfPipelineOptions,
             RapidOcrOptions,
+            TableStructureV2Options,
         )
         from docling.document_converter import DocumentConverter, PdfFormatOption
 
         options = PdfPipelineOptions()
+        artifacts_path = ParserService._resolve_docling_artifacts_path()
+        if artifacts_path is not None:
+            options.artifacts_path = artifacts_path
+        # The downloaded artifacts use TableFormerV2. Selecting it explicitly
+        # prevents Docling from looking for the legacy accurate/tm_config.json.
+        options.table_structure_options = TableStructureV2Options()
         options.do_ocr = ocr_mode != "off"
         options.generate_page_images = True
         options.generate_picture_images = True
@@ -248,6 +297,19 @@ class ParserService:
             allowed_formats=[InputFormat.PDF],
             format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)},
         )
+
+    @staticmethod
+    def _resolve_docling_artifacts_path() -> Path | None:
+        configured = get_settings().docling_artifacts_path
+        candidate = configured or Path.home() / ".cache" / "docling" / "models"
+        required = (
+            "docling-project--docling-layout-heron",
+            "docling-project--TableFormerV2",
+            "RapidOcr",
+        )
+        if candidate.is_dir() and all((candidate / name).is_dir() for name in required):
+            return candidate
+        return None
 
     @staticmethod
     def _save_source_asset(

@@ -7,9 +7,7 @@ from app.models.translation_job import TranslationJob
 from app.services.worker_service import WorkerService
 
 
-def test_worker_claims_postgres_queue_item(
-    db_session: Session, monkeypatch
-) -> None:
+def test_worker_claims_postgres_queue_item(db_session: Session, monkeypatch) -> None:
     now = datetime.now(timezone.utc)
     job = TranslationJob(
         job_id="job_queue_test",
@@ -43,3 +41,36 @@ def test_worker_claims_postgres_queue_item(
     assert calls == [(job.job_id, {"approved": True})]
     db_session.expire_all()
     assert db_session.get(JobQueue, job.job_id) is None
+
+
+def test_resume_restores_pre_translation_stage_status(
+    db_session: Session, monkeypatch
+) -> None:
+    now = datetime.now(timezone.utc)
+    job = TranslationJob(
+        job_id="job_resume_split",
+        original_filename="paper.pdf",
+        original_file_path="paper.pdf",
+        mode="paper",
+        status="FAILED",
+        current_stage="split_sections",
+        created_at=now,
+        updated_at=now,
+    )
+    db_session.add(job)
+    db_session.commit()
+    factory = sessionmaker(
+        bind=db_session.get_bind(),
+        join_transaction_mode="create_savepoint",
+        expire_on_commit=False,
+    )
+    monkeypatch.setattr("app.services.worker_service.SessionLocal", factory)
+    worker = WorkerService()
+    queued: list[str] = []
+    monkeypatch.setattr(worker, "enqueue", lambda job_id: queued.append(job_id))
+
+    worker.resume(job.job_id)
+
+    db_session.expire_all()
+    assert db_session.get(TranslationJob, job.job_id).status == "PARSED"
+    assert queued == [job.job_id]
