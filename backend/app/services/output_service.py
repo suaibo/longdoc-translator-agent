@@ -1,5 +1,7 @@
+import base64
 import hashlib
 import json
+import mimetypes
 import shutil
 import zipfile
 from datetime import datetime, timezone
@@ -318,9 +320,29 @@ class OutputService:
             metadata = asset.get("metadata") if isinstance(asset, dict) else None
             block_id = metadata.get("blockId") if isinstance(metadata, dict) else None
             relative_path = asset.get("relativePath") if isinstance(asset, dict) else None
-            if isinstance(block_id, str) and isinstance(relative_path, str):
-                lookup.setdefault(block_id, relative_path)
+            if not isinstance(relative_path, str):
+                continue
+            source = OutputService._asset_src(
+                document_path.parent,
+                relative_path,
+                str(asset.get("mediaType") or ""),
+            )
+            lookup.setdefault(relative_path, source)
+            if isinstance(block_id, str):
+                lookup.setdefault(block_id, source)
         return lookup
+
+    @staticmethod
+    def _asset_src(root: Path, relative_path: str, media_type: str) -> str:
+        if Path(relative_path).is_absolute() or ".." in Path(relative_path).parts:
+            return relative_path
+        path = root / relative_path
+        if not path.is_file():
+            return relative_path
+        guessed_type = mimetypes.guess_type(path.name)[0]
+        content_type = media_type or guessed_type or "application/octet-stream"
+        payload = base64.b64encode(path.read_bytes()).decode("ascii")
+        return f"data:{content_type};base64,{payload}"
 
     @staticmethod
     def _safe_output_path(root: Path, relative: str) -> Path:

@@ -179,6 +179,7 @@ def test_translated_html_preserves_author_table_and_formula_asset(
     assert "谷歌大脑" not in html_text
     assert "Google Brain" in html_text
     assert '<div class="author-card">' in html_text
-    assert 'src="assets/formulas/formula.png"' in html_text
-    assert 'src="assets/figures/figure.png"' in html_text
+    assert 'src="data:image/png;base64,cG5n"' in html_text
+    assert "assets/formulas/formula.png" not in html_text
+    assert "assets/figures/figure.png" not in html_text
     assert r"\n\n" not in html_text

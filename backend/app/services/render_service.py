@@ -214,7 +214,7 @@ th {{ background: #eef3f1; }}
         metadata = chunk.structure_metadata or {}
         path = metadata.get("sourceAssetPath")
         if isinstance(path, str) and path:
-            return path
+            return asset_lookup.get(path, path) if asset_lookup else path
         if asset_lookup:
             for block_id in chunk.source_block_ids or []:
                 if block_id in asset_lookup:
