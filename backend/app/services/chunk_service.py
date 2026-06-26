@@ -419,6 +419,8 @@ class ChunkService:
         table_group_id = self._stable_id("table", table.block_id)
         block_ids = ([caption.block_id] if caption else []) + [table.block_id]
         risks = self._table_risks(caption, table)
+        asset_metadata = self._asset_metadata(table)
+        protected = self._is_author_contact_table(table)
         return ChunkDraft(
             section_title=section_title,
             chunk_type=ChunkType.TABLE,
@@ -435,6 +437,9 @@ class ChunkService:
                 "caption": original_caption or None,
                 "headerRows": header,
                 "syntheticRepeat": group_index > 0,
+                "translationProtected": protected,
+                "protectionReason": "author_contact_block" if protected else None,
+                **asset_metadata,
                 **self._page_metadata([item for item in [caption, table] if item]),
             },
             risks=risks,
@@ -454,9 +459,18 @@ class ChunkService:
         metadata: dict[str, Any] = {
             "atomic": True,
             "blockKinds": [item.kind.value for item in blocks],
+            **self._asset_metadata(block),
             **self._page_metadata(blocks),
         }
+        if chunk_type in {ChunkType.FORMULA, ChunkType.PICTURE, ChunkType.CODE}:
+            metadata.update(
+                {
+                    "translationProtected": True,
+                    "protectionReason": f"{chunk_type.value.lower()}_atomic_block",
+                }
+            )
         if chunk_type == ChunkType.TABLE:
+            protected = self._is_author_contact_table(block)
             metadata.update(
                 {
                     "tableGroupId": self._stable_id("table", block.block_id),
@@ -465,6 +479,10 @@ class ChunkService:
                     "originalTableBlockId": block.block_id,
                     "caption": caption.markdown.strip() if caption else None,
                     "syntheticRepeat": False,
+                    "translationProtected": protected,
+                    "protectionReason": (
+                        "author_contact_block" if protected else None
+                    ),
                 }
             )
         risks = self._merge_risks(*(item.risks for item in blocks))
@@ -665,6 +683,27 @@ class ChunkService:
             if block.page_no is not None or block.bbox is not None
         ]
         return {"pages": pages, "blockLocations": locations}
+
+    @staticmethod
+    def _asset_metadata(block: ParsedBlock) -> dict[str, Any]:
+        metadata: dict[str, Any] = {}
+        source_asset_path = block.metadata.get("source_asset_path")
+        if isinstance(source_asset_path, str) and source_asset_path:
+            metadata["sourceAssetPath"] = source_asset_path
+            metadata["sourceAssetMediaType"] = block.metadata.get(
+                "source_asset_media_type", "application/octet-stream"
+            )
+        return metadata
+
+    @staticmethod
+    def _is_author_contact_table(block: ParsedBlock) -> bool:
+        if block.kind != BlockKind.TABLE or block.page_no not in {None, 1}:
+            return False
+        emails = re.findall(
+            r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}",
+            block.markdown,
+        )
+        return len(set(emails)) >= 2
 
     @staticmethod
     def _referenced_caption(

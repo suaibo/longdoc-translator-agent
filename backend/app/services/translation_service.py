@@ -51,11 +51,19 @@ class TranslationService:
         chunk: DocumentChunk,
         previous_summary: str | None,
     ) -> DocumentChunk:
-        llm = self.llm or LLMService()
         chunk.status = ChunkStatus.TRANSLATING.value
         chunk.updated_at = datetime.now(timezone.utc)
         self.db.commit()
         try:
+            if self._translation_protected(chunk):
+                chunk.translated_text = chunk.source_text
+                chunk.status = ChunkStatus.COMPLETED.value
+                chunk.translated_at = datetime.now(timezone.utc)
+                chunk.updated_at = chunk.translated_at
+                self.db.commit()
+                self.db.refresh(chunk)
+                return chunk
+            llm = self.llm or LLMService()
             BudgetService(self.db).assert_available(job_id)
             result = llm.translate_chunk(
                 chunk.source_text,
@@ -96,6 +104,11 @@ class TranslationService:
                 "chunk 尚未翻译，不能生成上下文摘要",
                 status_code=409,
             )
+        if self._translation_protected(chunk):
+            chunk.context_summary = "结构化原子块已保留原文，不参与上下文摘要。"
+            chunk.updated_at = datetime.now(timezone.utc)
+            self.db.commit()
+            return chunk.context_summary
         llm = self.llm or LLMService()
         BudgetService(self.db).assert_available(job_id)
         result = llm.summarize_chunk(chunk.source_text, chunk.translated_text)
@@ -111,6 +124,8 @@ class TranslationService:
 
     def mark_quality_risks(self, job_id: str, chunk: DocumentChunk) -> list[RiskItem]:
         if not chunk.translated_text:
+            return []
+        if self._translation_protected(chunk):
             return []
         llm = self.llm or LLMService()
         BudgetService(self.db).assert_available(job_id)
@@ -245,6 +260,21 @@ class TranslationService:
         if CITATION_PATTERN.search(chunk.source_text):
             return "reference"
         return "text"
+
+    @staticmethod
+    def _translation_protected(chunk: DocumentChunk) -> bool:
+        metadata = chunk.structure_metadata or {}
+        if metadata.get("translationProtected") is True:
+            return True
+        if chunk.chunk_type in {"FORMULA", "PICTURE", "CODE"}:
+            return True
+        if chunk.chunk_type == "TABLE":
+            emails = re.findall(
+                r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}",
+                chunk.source_text or "",
+            )
+            return len(set(emails)) >= 2
+        return False
 
     @staticmethod
     def _deterministic_findings(

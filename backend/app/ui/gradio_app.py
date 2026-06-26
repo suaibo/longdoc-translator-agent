@@ -31,10 +31,64 @@ footer { display: none !important; }
 .app-header p { color: var(--muted); margin: 4px 0 0 !important; }
 .gradio-container h1, .gradio-container h2, .gradio-container h3 { color: var(--ink) !important; }
 .gradio-container .prose p { color: var(--muted) !important; }
+.gradio-container label,
+.gradio-container .block-label,
+.gradio-container .block-info,
+.gradio-container .wrap label span,
+.gradio-container .form label span {
+  color: #243238 !important;
+}
+.gradio-container .block-label {
+  font-weight: 700 !important;
+}
 .gradio-container input, .gradio-container textarea {
   background: #ffffff !important;
   color: var(--ink) !important;
   border-color: #cbd5da !important;
+}
+.gradio-container input[type="radio"],
+.gradio-container input[type="checkbox"] {
+  accent-color: var(--teal) !important;
+}
+.gradio-container input[type="checkbox"] {
+  position: relative !important;
+  width: 16px !important;
+  height: 16px !important;
+  border: 1px solid #8aa0a4 !important;
+  border-radius: 2px !important;
+}
+.gradio-container input[type="checkbox"]:checked {
+  background: var(--teal) !important;
+  border-color: var(--teal) !important;
+}
+.gradio-container input[type="checkbox"]:checked::after {
+  content: "" !important;
+  position: absolute !important;
+  left: 4px !important;
+  top: 1px !important;
+  width: 5px !important;
+  height: 9px !important;
+  border: solid #ffffff !important;
+  border-width: 0 2px 2px 0 !important;
+  transform: rotate(45deg) !important;
+}
+.gradio-container label:has(input[type="radio"]),
+.gradio-container label:has(input[type="checkbox"]) {
+  color: var(--ink) !important;
+  background: #ffffff !important;
+  border: 1px solid #cbd5da !important;
+}
+.gradio-container label:has(input[type="radio"]:checked),
+.gradio-container label:has(input[type="checkbox"]:checked) {
+  color: #0b4f49 !important;
+  background: #e8f4f2 !important;
+  border-color: var(--teal) !important;
+  box-shadow: inset 0 0 0 1px rgba(15, 118, 110, .22) !important;
+}
+.gradio-container label:has(input[type="radio"]:checked) span,
+.gradio-container label:has(input[type="checkbox"]:checked) span {
+  color: #0b4f49 !important;
+  font-weight: 700 !important;
 }
 .gradio-container .form { background: transparent !important; border: 0 !important; }
 .login-shell {

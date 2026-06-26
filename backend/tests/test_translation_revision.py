@@ -33,6 +33,11 @@ class RevisionLLM:
         return LLMResult(content="修订后的完整译文")
 
 
+class FailingTranslateLLM:
+    def translate_chunk(self, *args, **kwargs):
+        raise AssertionError("protected chunks must not call LLM")
+
+
 def test_high_quality_issue_runs_bounded_revision(
     db_session: Session, monkeypatch
 ) -> None:
@@ -75,3 +80,42 @@ def test_high_quality_issue_runs_bounded_revision(
     assert chunk.revision_count == 1
     assert llm.quality_calls == 2
     assert risks == []
+
+
+def test_protected_author_chunk_skips_llm_translation(db_session: Session) -> None:
+    now = datetime.now(timezone.utc)
+    job = TranslationJob(
+        job_id="job_protected",
+        original_filename="paper.md",
+        original_file_path="paper.md",
+        mode="paper",
+        status="TRANSLATING",
+        current_stage="translate_chunk",
+        created_at=now,
+        updated_at=now,
+    )
+    source = (
+        "| Ashish Vaswani Google Brain avaswani@google.com | "
+        "Noam Shazeer Google Brain noam@google.com |\n"
+        "| --- | --- |"
+    )
+    chunk = DocumentChunk(
+        chunk_id="chunk_protected",
+        job_id=job.job_id,
+        chunk_index=0,
+        chunk_type="TABLE",
+        source_text=source,
+        structure_metadata={"translationProtected": True},
+        status="PENDING",
+        created_at=now,
+        updated_at=now,
+    )
+    db_session.add_all([job, chunk])
+    db_session.commit()
+
+    translated = TranslationService(db_session, llm=FailingTranslateLLM()).translate(
+        job.job_id, chunk, previous_summary=None
+    )
+
+    assert translated.translated_text == source
+    assert translated.status == "COMPLETED"

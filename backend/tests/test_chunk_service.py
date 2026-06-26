@@ -101,13 +101,21 @@ def test_chinese_sentence_split_does_not_insert_spaces(db_session: Session) -> N
 
 
 def test_formula_and_code_are_atomic_even_above_limit(db_session: Session) -> None:
-    formula = block("formula", BlockKind.FORMULA, "$$\n" + "x" * 100 + "\n$$", 0)
+    formula = block(
+        "formula",
+        BlockKind.FORMULA,
+        "$$\n" + "x" * 100 + "\n$$",
+        0,
+        metadata={"source_asset_path": "assets/formulas/formula.png"},
+    )
     code = block("code", BlockKind.CODE, "```python\n" + "x = 1\n" * 20 + "```", 1)
 
     drafts = ChunkService(db_session, max_tokens=5).build_drafts([formula, code])
 
     assert [draft.chunk_type for draft in drafts] == [ChunkType.FORMULA, ChunkType.CODE]
     assert drafts[0].structure_metadata["atomic"] is True
+    assert drafts[0].structure_metadata["translationProtected"] is True
+    assert drafts[0].structure_metadata["sourceAssetPath"] == "assets/formulas/formula.png"
     assert drafts[1].structure_metadata["atomic"] is True
 
 
@@ -130,6 +138,27 @@ def test_small_table_and_caption_remain_one_atomic_chunk(db_session: Session) ->
     assert drafts[0].source_text.startswith("Table 1. Results\n\n| Method")
     assert drafts[0].structure_metadata["groupCount"] == 1
     assert RiskType.TABLE in {risk.risk_type for risk in drafts[0].risks}
+
+
+def test_author_contact_table_is_protected_from_translation(
+    db_session: Session,
+) -> None:
+    table = block(
+        "authors",
+        BlockKind.TABLE,
+        "| Ashish Vaswani Google Brain avaswani@google.com | Noam Shazeer Google Brain noam@google.com |\n"
+        "| --- | --- |\n"
+        "| Niki Parmar Google Research nikip@google.com | Jakob Uszkoreit Google Research usz@google.com |",
+        0,
+        page_no=1,
+    )
+
+    drafts = ChunkService(db_session, max_tokens=100).build_drafts([table])
+
+    assert len(drafts) == 1
+    assert drafts[0].chunk_type == ChunkType.TABLE
+    assert drafts[0].structure_metadata["translationProtected"] is True
+    assert drafts[0].structure_metadata["protectionReason"] == "author_contact_block"
 
 
 def test_large_table_splits_by_rows_and_repeats_context(db_session: Session) -> None:

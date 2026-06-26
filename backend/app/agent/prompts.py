@@ -12,7 +12,9 @@ Rules:
    units, equation symbols, LaTeX, and figure/table numbering.
 3. Do not summarize, omit, invent, or explain.
 4. For a Markdown table, translate textual cells while preserving valid rows.
-5. Return only the translated chunk."""
+5. Do not translate email addresses, URLs, code identifiers, author contact
+   blocks, or affiliation/contact metadata. Preserve those strings verbatim.
+6. Return only the translated chunk."""
 
 SUMMARY_SYSTEM = """Summarize the translated chunk for continuity with the next
 chunk. Return concise notes in the requested target language covering entities, claims, terminology,

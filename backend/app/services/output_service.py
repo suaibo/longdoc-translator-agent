@@ -260,10 +260,11 @@ class OutputService:
         )
 
     def _bilingual_html(self, job: TranslationJob, chunks: list[DocumentChunk]) -> str:
+        asset_lookup = self._asset_lookup(job)
         body = "\n".join(
             '<section class="pair">'
-            f'<div class="source">{self.renderer.html_chunk(chunk, False)}</div>'
-            f'<div class="translation">{self.renderer.html_chunk(chunk, True)}</div>'
+            f'<div class="source">{self.renderer.html_chunk(chunk, False, asset_lookup)}</div>'
+            f'<div class="translation">{self.renderer.html_chunk(chunk, True, asset_lookup)}</div>'
             "</section>"
             for chunk in chunks
         )
@@ -275,7 +276,10 @@ class OutputService:
         )
 
     def _translated_html(self, job: TranslationJob, chunks: list[DocumentChunk]) -> str:
-        body = "\n".join(self.renderer.html_chunk(chunk, True) for chunk in chunks)
+        asset_lookup = self._asset_lookup(job)
+        body = "\n".join(
+            self.renderer.html_chunk(chunk, True, asset_lookup) for chunk in chunks
+        )
         return self.renderer.document_html(
             job.original_filename,
             body,
@@ -297,6 +301,26 @@ class OutputService:
                 .order_by(DocumentChunk.chunk_index)
             )
         )
+
+    @staticmethod
+    def _asset_lookup(job: TranslationJob) -> dict[str, str]:
+        if not job.document_ir_path:
+            return {}
+        document_path = Path(job.document_ir_path)
+        if not document_path.is_file():
+            return {}
+        try:
+            payload = json.loads(document_path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+        lookup: dict[str, str] = {}
+        for asset in payload.get("assets", []):
+            metadata = asset.get("metadata") if isinstance(asset, dict) else None
+            block_id = metadata.get("blockId") if isinstance(metadata, dict) else None
+            relative_path = asset.get("relativePath") if isinstance(asset, dict) else None
+            if isinstance(block_id, str) and isinstance(relative_path, str):
+                lookup.setdefault(block_id, relative_path)
+        return lookup
 
     @staticmethod
     def _safe_output_path(root: Path, relative: str) -> Path:
