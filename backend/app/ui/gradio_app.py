@@ -13,12 +13,24 @@ CSS = """
   --amber: #b7791f;
   --danger: #b42318;
 }
+html,
+body,
+gradio-app {
+  background: var(--canvas) !important;
+  color: var(--ink) !important;
+  color-scheme: light !important;
+}
 .gradio-container {
   width: 100% !important;
   max-width: 1440px !important;
   margin: 0 auto !important;
   background: var(--canvas) !important;
   color: var(--ink) !important;
+  color-scheme: light !important;
+}
+gradio-app *,
+.gradio-container * {
+  color-scheme: light !important;
 }
 footer { display: none !important; }
 .gradio-container,
@@ -112,6 +124,49 @@ footer { display: none !important; }
 .gradio-container option {
   background: #ffffff !important;
   color: var(--ink) !important;
+}
+.gradio-container input[role="listbox"],
+.gradio-container input[list],
+.gradio-container .wrap-inner,
+.gradio-container .secondary-wrap {
+  background: #ffffff !important;
+  color: var(--ink) !important;
+  border-color: #cbd5da !important;
+}
+.gradio-container .dropdown-arrow,
+.gradio-container .icon-wrap,
+.gradio-container .icon-wrap svg,
+.gradio-container [aria-haspopup="listbox"] svg {
+  color: #425159 !important;
+  stroke: #425159 !important;
+}
+.gradio-container [role="listbox"],
+.gradio-container [role="option"],
+.gradio-container .options,
+.gradio-container .options ul,
+.gradio-container .options li,
+.gradio-container .options button,
+.gradio-container .option,
+.gradio-container .item {
+  background: #ffffff !important;
+  color: var(--ink) !important;
+  border-color: #cbd5da !important;
+}
+.gradio-container [role="option"]:hover,
+.gradio-container .options li:hover,
+.gradio-container .options button:hover,
+.gradio-container .option:hover,
+.gradio-container .item:hover {
+  background: #eef7f5 !important;
+  color: #0b4f49 !important;
+}
+.gradio-container [role="option"][aria-selected="true"],
+.gradio-container [role="option"][data-selected="true"],
+.gradio-container .options .selected,
+.gradio-container .option.selected,
+.gradio-container .item.selected {
+  background: #e8f4f2 !important;
+  color: #0b4f49 !important;
 }
 .gradio-container input[type="radio"],
 .gradio-container input[type="checkbox"] { accent-color: var(--teal) !important; }
@@ -282,7 +337,12 @@ footer { display: none !important; }
   flex-wrap: wrap;
 }
 .job-title-row strong { color: var(--teal); }
-.job-language { color: var(--muted); margin-top: 8px; display: flex; gap: 10px; flex-wrap: wrap; }
+.job-language,
+.job-language span {
+  color: #51616a !important;
+  opacity: 1 !important;
+}
+.job-language { margin-top: 8px; display: flex; gap: 10px; flex-wrap: wrap; }
 .job-progress-track {
   height: 10px;
   background: #e7ecee;
@@ -291,7 +351,12 @@ footer { display: none !important; }
   margin: 18px 0 12px;
 }
 .job-progress-track span { display: block; height: 100%; background: var(--teal); }
-.job-stats { color: var(--muted); font-size: 13px; }
+.job-stats,
+.job-stats span {
+  color: #51616a !important;
+  opacity: 1 !important;
+}
+.job-stats { font-size: 13px; }
 .job-stats strong { color: var(--ink); }
 .job-updated { color: var(--muted); font-size: 12px; margin-top: 12px; }
 .job-risk, .job-error { margin-top: 12px; padding: 10px; border-left: 3px solid var(--amber); background: #fff8e8; }
