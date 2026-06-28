@@ -765,6 +765,35 @@ def create_gradio_app() -> gr.Blocks:
             detail_risks,
             detail_reviews,
         ]
+        poll_outputs = [
+            job_summary,
+            stage_flow,
+            no_job_panel,
+            progress_panel,
+            terms_panel,
+            style_panel,
+            review_panel,
+            output_panel,
+            terms,
+            chunks,
+            risks,
+            events,
+            reviews,
+            preview_source,
+            preview_translation,
+            style_prompt,
+            bilingual,
+            translated,
+            report,
+            bilingual_html,
+            translated_html,
+            package,
+            source,
+            detail_terms,
+            detail_chunks,
+            detail_risks,
+            detail_reviews,
+        ]
         auth_outputs = [
             auth_status,
             auth_token,
@@ -930,9 +959,9 @@ def create_gradio_app() -> gr.Blocks:
 
         timer = gr.Timer(value=2.0, active=True)
         timer.tick(
-            handlers.refresh_dashboard,
-            inputs=[auth_token, selected_job],
-            outputs=dashboard_outputs,
+            handlers.refresh_dashboard_poll,
+            inputs=[auth_token, selected_job, terms, style_prompt],
+            outputs=poll_outputs,
             show_progress="hidden",
         )
 

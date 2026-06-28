@@ -595,6 +595,56 @@ def refresh_dashboard(token: str | None, job_id: str | None) -> tuple[Any, ...]:
         return (f"刷新失败：{exc}", *empty)
 
 
+POLL_DASHBOARD_OUTPUT_INDICES = (
+    0,  # job_summary
+    1,  # stage_flow
+    2,  # no_job_panel
+    3,  # progress_panel
+    4,  # terms_panel
+    5,  # style_panel
+    6,  # review_panel
+    7,  # output_panel
+    8,  # terms
+    9,  # chunks
+    10,  # risks
+    11,  # events
+    12,  # reviews
+    13,  # preview_source
+    14,  # preview_translation
+    15,  # style_prompt
+    20,  # bilingual
+    21,  # translated
+    22,  # report
+    23,  # bilingual_html
+    24,  # translated_html
+    25,  # package
+    26,  # source
+    27,  # detail_terms
+    28,  # detail_chunks
+    29,  # detail_risks
+    30,  # detail_reviews
+)
+
+
+def refresh_dashboard_poll(
+    token: str | None,
+    job_id: str | None,
+    current_terms: list[list[Any]] | None = None,
+    current_style_prompt: str | None = None,
+) -> tuple[Any, ...]:
+    """Refresh passive status surfaces without disturbing active edit controls."""
+    full_update = refresh_dashboard(token, job_id)
+    poll_update: list[Any] = []
+    for index in POLL_DASHBOARD_OUTPUT_INDICES:
+        if index == 8 and current_terms:
+            poll_update.append(gr.update())
+        elif index == 15 and (current_style_prompt or "").strip():
+            poll_update.append(gr.update())
+        else:
+            poll_update.append(full_update[index])
+    return tuple(poll_update)
+
+
 def _stage_panel_updates(status: str) -> tuple[Any, ...]:
     progress_statuses = {"UPLOADED", "PARSED", "TRANSLATING", "FAILED", "CANCELLED"}
     review_statuses = {"WAITING_RISK_REVIEW", "WAITING_CHAPTER_REVIEW"}
