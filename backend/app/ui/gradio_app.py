@@ -21,17 +21,59 @@ CSS = """
   color: var(--ink) !important;
 }
 footer { display: none !important; }
+.gradio-container,
+.gradio-container .main,
+.gradio-container .app,
+.gradio-container .contain,
+.gradio-container .block,
+.gradio-container .form,
+.gradio-container .panel,
+.gradio-container .wrap,
+.gradio-container .input-container,
+.gradio-container .tabs,
+.gradio-container .tabitem,
+.gradio-container .file-preview,
+.gradio-container .upload-container,
+.gradio-container .table-wrap,
+.gradio-container [role="grid"],
+.gradio-container [role="row"],
+.gradio-container [role="gridcell"],
+.gradio-container [role="columnheader"] {
+  background-color: var(--surface) !important;
+  color: var(--ink) !important;
+  border-color: var(--line) !important;
+  box-shadow: none !important;
+}
+.gradio-container > .main,
+.gradio-container .main > .wrap {
+  background-color: var(--canvas) !important;
+}
 .app-header { border-bottom: 1px solid var(--line); padding-bottom: 14px; }
 .app-header h1 { color: var(--ink) !important; font-size: 24px !important; margin: 0 !important; }
 .app-header p,
+.gradio-container .prose,
+.gradio-container .markdown,
+.gradio-container .md,
 .gradio-container .prose p,
 .gradio-container .markdown p {
+  color: var(--ink) !important;
+  opacity: 1 !important;
+}
+.app-header p,
+.gradio-container .prose p,
+.gradio-container .markdown p,
+.gradio-container .md p,
+.gradio-container small,
+.gradio-container .secondary-text {
   color: var(--muted) !important;
   opacity: 1 !important;
 }
 .gradio-container .prose h1,
 .gradio-container .prose h2,
 .gradio-container .prose h3,
+.gradio-container .md h1,
+.gradio-container .md h2,
+.gradio-container .md h3,
 .gradio-container .markdown h1,
 .gradio-container .markdown h2,
 .gradio-container .markdown h3 {
@@ -39,17 +81,33 @@ footer { display: none !important; }
   opacity: 1 !important;
 }
 .gradio-container label,
+.gradio-container legend,
+.gradio-container fieldset,
 .gradio-container .block-label,
 .gradio-container .block-info,
 .gradio-container .wrap label span,
 .gradio-container .form label span {
   color: #243238 !important;
+  opacity: 1 !important;
 }
 .gradio-container .block-label { font-weight: 700 !important; }
-.gradio-container input, .gradio-container textarea {
+.gradio-container input,
+.gradio-container textarea,
+.gradio-container select,
+.gradio-container [role="combobox"] {
   background: #ffffff !important;
   color: var(--ink) !important;
   border-color: #cbd5da !important;
+  box-shadow: none !important;
+}
+.gradio-container input::placeholder,
+.gradio-container textarea::placeholder {
+  color: #6b7280 !important;
+  opacity: 1 !important;
+}
+.gradio-container option {
+  background: #ffffff !important;
+  color: var(--ink) !important;
 }
 .gradio-container input[type="radio"],
 .gradio-container input[type="checkbox"] { accent-color: var(--teal) !important; }
@@ -64,6 +122,74 @@ footer { display: none !important; }
   color: #0b4f49 !important;
   background: #e8f4f2 !important;
   border-color: var(--teal) !important;
+}
+.gradio-container [role="tab"],
+.gradio-container button[role="tab"] {
+  background: #ffffff !important;
+  color: #425159 !important;
+  border-color: var(--line) !important;
+}
+.gradio-container [role="tab"][aria-selected="true"],
+.gradio-container button[role="tab"][aria-selected="true"],
+.gradio-container .selected {
+  color: #0b4f49 !important;
+  border-color: var(--teal) !important;
+}
+.gradio-container table,
+.gradio-container thead,
+.gradio-container tbody,
+.gradio-container tr,
+.gradio-container th,
+.gradio-container td {
+  background: #ffffff !important;
+  color: var(--ink) !important;
+  border-color: var(--line) !important;
+}
+.gradio-container th,
+.gradio-container [role="columnheader"] {
+  color: #425159 !important;
+  font-weight: 700 !important;
+}
+.gradio-container td,
+.gradio-container [role="gridcell"] {
+  color: var(--ink) !important;
+}
+.gradio-container button.primary,
+.gradio-container button.secondary,
+.gradio-container button.stop,
+.gradio-container button.lg {
+  color: #ffffff !important;
+  border-color: transparent !important;
+  font-weight: 700 !important;
+}
+.gradio-container button.primary span,
+.gradio-container button.secondary span,
+.gradio-container button.stop span,
+.gradio-container button.lg span {
+  color: inherit !important;
+}
+.gradio-container button.primary {
+  background: var(--teal) !important;
+  color: #ffffff !important;
+}
+.gradio-container button.secondary,
+.gradio-container button.lg:not(.primary):not(.stop) {
+  background: #556170 !important;
+  color: #ffffff !important;
+}
+.gradio-container button.stop {
+  background: var(--danger) !important;
+  color: #ffffff !important;
+}
+.gradio-container button.boundedheight {
+  background: #ffffff !important;
+  color: var(--ink) !important;
+  border: 1px dashed #cbd5da !important;
+  font-weight: 700 !important;
+}
+.gradio-container button.boundedheight span,
+.gradio-container button.boundedheight svg {
+  color: var(--ink) !important;
 }
 .login-shell {
   max-width: 460px;
@@ -128,7 +254,6 @@ footer { display: none !important; }
 .compact-table table { font-size: 13px !important; }
 .compact-table th { color: #425159 !important; font-weight: 600 !important; }
 .compact-table td { vertical-align: top !important; }
-button.primary { background: var(--teal) !important; }
 .task-list label {
   border: 0 !important;
   border-bottom: 1px solid var(--line) !important;
