@@ -351,6 +351,29 @@ footer { display: none !important; }
 .detail-accordion {
   margin-top: 12px;
 }
+.output-panel label.svelte-j0zqjt,
+.output-panel label.float {
+  background: #f7fbfa !important;
+  color: #243238 !important;
+  border: 1px solid #cbd5da !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+}
+.output-panel label span,
+.output-panel label svg {
+  color: #243238 !important;
+}
+.output-panel .file-preview,
+.output-panel .block {
+  background: #ffffff !important;
+  border-color: var(--line) !important;
+}
+.output-panel .file-preview a,
+.output-panel .file-preview span,
+.output-panel .file-preview button,
+.output-panel .block a {
+  color: #0b4f49 !important;
+}
 @media (max-width: 600px) {
   .sidebar { min-width: 0 !important; padding-right: 0 !important; border-right: 0 !important; }
   .main-pane { padding-left: 0 !important; }
@@ -550,7 +573,7 @@ def create_gradio_app() -> gr.Blocks:
                         )
 
                     with gr.Column(
-                        visible=False, elem_classes=["stage-panel"]
+                        visible=False, elem_classes=["stage-panel", "output-panel"]
                     ) as output_panel:
                         gr.Markdown(
                             "### 结果与交付\n任务完成后可以下载结果；如需微调译文，可编辑片段并重新生成输出。"
