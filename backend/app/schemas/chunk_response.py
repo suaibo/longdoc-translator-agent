@@ -19,6 +19,9 @@ class ChunkResponse(BaseModel):
     risk_summary: str | None
     source_preview: str
     translated_preview: str | None
+    source_text: str | None = None
+    translated_text: str | None = None
+    revision_count: int = 0
     boundary_reason: str | None
     boundary_score: float | None
     semantic_topic: str | None

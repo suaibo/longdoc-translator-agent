@@ -10,6 +10,7 @@ class WorkflowEventResponse(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     event_id: str
+    event_seq: int
     node: str
     event_type: str
     status: str

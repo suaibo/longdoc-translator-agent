@@ -15,8 +15,12 @@ from app.models.risk_item import RiskItem
 from app.models.term_entry import TermEntry
 from app.schemas.term import TermConfirmation
 from app.services.auth_service import AuthService
+from app.services.chunk_edit_service import ChunkEditService
 from app.services.event_service import EventService
 from app.services.job_service import JobService
+from app.services.model_catalog_service import ModelCatalogService
+from app.services.output_service import OutputService
+from app.services.pretranslation_service import PretranslationService
 from app.services.review_service import ReviewService
 from app.services.term_service import TermService
 from app.services.worker_service import get_worker
@@ -27,6 +31,7 @@ STATUS_LABELS = {
     "UPLOADED": "等待处理",
     "PARSED": "解析完成",
     "WAITING_TERM_REVIEW": "等待术语确认",
+    "WAITING_STYLE_REVIEW": "等待风格确认",
     "WAITING_RISK_REVIEW": "等待风险审核",
     "WAITING_CHAPTER_REVIEW": "等待章节审核",
     "TRANSLATING": "翻译中",
@@ -34,6 +39,7 @@ STATUS_LABELS = {
     "FAILED": "失败，可恢复",
     "CANCELLED": "已取消",
 }
+
 RISK_LABELS = {
     "TABLE": "表格结构",
     "FORMULA": "公式结构",
@@ -132,6 +138,14 @@ def logout_user(token: str | None) -> tuple[Any, ...]:
     )
 
 
+def model_choices() -> Any:
+    options = ModelCatalogService().list_options()
+    return gr.update(
+        choices=[(f"{item.name} · {item.provider}", item.id) for item in options],
+        value=options[0].id if options else None,
+    )
+
+
 def create_job(
     token: str | None,
     file_path: str | None,
@@ -140,6 +154,7 @@ def create_job(
     target_language: str = "zh",
     require_high_risk_review: bool = False,
     require_chapter_review: bool = False,
+    selected_model: str | None = None,
 ) -> tuple[str, Any, str | None]:
     if not file_path:
         return "请先选择 PDF、Markdown 或 TXT 文件。", gr.update(), None
@@ -156,6 +171,7 @@ def create_job(
                 require_high_risk_review,
                 require_chapter_review,
                 target_language=target_language,
+                selected_model=selected_model,
                 user_id=user.user_id,
             )
             get_worker().enqueue(job.job_id)
@@ -237,11 +253,56 @@ def confirm_terms(token: str | None, job_id: str | None, rows: list[list[Any]]) 
             ]
             TermService(db).confirm(job_id, confirmations)
         get_worker().resume_review(job_id)
-        return "术语已确认，后台翻译继续运行。"
+        return "术语已确认，后台将生成预翻译样例。"
     except (AppError, ValueError) as exc:
         return getattr(exc, "message", str(exc))
     except Exception as exc:
         return f"确认术语失败：{exc}"
+
+
+def retry_pretranslation(
+    token: str | None, job_id: str | None, style_prompt: str | None
+) -> str:
+    if not job_id:
+        return "请先选择任务。"
+    try:
+        with session_scope() as db:
+            user = _user(db, token)
+            JobService(db, get_storage_paths()).get_job(job_id, user.user_id)
+            preview = PretranslationService(db).generate(job_id, style_prompt)
+            EventService(db).record_job_event(
+                job_id,
+                "STYLE",
+                "PREVIEWED",
+                "预翻译样例已重新生成",
+                {"previewId": preview.preview_id, "attemptNo": preview.attempt_no},
+            )
+        return "预翻译已重新生成。"
+    except AppError as exc:
+        return exc.message
+    except Exception as exc:
+        return f"预翻译失败：{exc}"
+
+
+def confirm_style(
+    token: str | None, job_id: str | None, style_prompt: str | None
+) -> str:
+    if not job_id:
+        return "请先选择任务。"
+    try:
+        with session_scope() as db:
+            user = _user(db, token)
+            JobService(db, get_storage_paths()).get_job(job_id, user.user_id)
+            PretranslationService(db).confirm_style(job_id, style_prompt)
+            EventService(db).record_job_event(
+                job_id, "STYLE", "CONFIRMED", "翻译风格已确认"
+            )
+        get_worker().resume_review(job_id, {"styleConfirmed": True})
+        return "风格已确认，正式翻译继续。"
+    except AppError as exc:
+        return exc.message
+    except Exception as exc:
+        return f"确认风格失败：{exc}"
 
 
 def approve_pending_review(token: str | None, job_id: str | None, note: str) -> str:
@@ -266,6 +327,113 @@ def approve_pending_review(token: str | None, job_id: str | None, note: str) -> 
         return f"审核失败：{exc}"
 
 
+def load_chunk_for_edit(
+    token: str | None, job_id: str | None, chunk_id: str | None
+) -> tuple[str, str, list[list[Any]], str]:
+    if not job_id or not chunk_id:
+        return "", "", [], ""
+    try:
+        with session_scope() as db:
+            user = _user(db, token)
+            JobService(db, get_storage_paths()).get_job(job_id, user.user_id)
+            chunk = db.get(DocumentChunk, chunk_id)
+            if chunk is None or chunk.job_id != job_id:
+                return "", "", [], "片段不存在。"
+            versions = ChunkEditService(db).list_versions(job_id, chunk_id)
+            return (
+                chunk.source_text,
+                chunk.translated_text or "",
+                _version_rows(versions),
+                "",
+            )
+    except AppError as exc:
+        return "", "", [], exc.message
+    except Exception as exc:
+        return "", "", [], f"加载片段失败：{exc}"
+
+
+def save_chunk_translation(
+    token: str | None,
+    job_id: str | None,
+    chunk_id: str | None,
+    translated_text: str,
+    edit_note: str,
+) -> str:
+    if not job_id or not chunk_id:
+        return "请先选择任务和片段。"
+    try:
+        with session_scope() as db:
+            user = _user(db, token)
+            JobService(db, get_storage_paths()).get_job(job_id, user.user_id)
+            chunk = ChunkEditService(db).update_translation(
+                job_id, chunk_id, user.user_id, translated_text, edit_note or None
+            )
+            EventService(db).record_job_event(
+                job_id,
+                "EDIT",
+                "SAVED",
+                f"第 {chunk.chunk_index + 1} 个片段译文已保存",
+                {"chunkId": chunk.chunk_id, "chunkIndex": chunk.chunk_index},
+            )
+        return "译文已保存，输出文件已标记为需要重新生成。"
+    except AppError as exc:
+        return exc.message
+    except Exception as exc:
+        return f"保存译文失败：{exc}"
+
+
+def restore_chunk_version(
+    token: str | None, job_id: str | None, chunk_id: str | None, version_id: str
+) -> str:
+    if not job_id or not chunk_id or not version_id:
+        return "请先选择任务、片段和版本。"
+    try:
+        with session_scope() as db:
+            user = _user(db, token)
+            JobService(db, get_storage_paths()).get_job(job_id, user.user_id)
+            chunk = ChunkEditService(db).restore_version(
+                job_id, chunk_id, version_id.strip(), user.user_id
+            )
+            EventService(db).record_job_event(
+                job_id,
+                "EDIT",
+                "RESTORED",
+                f"第 {chunk.chunk_index + 1} 个片段已恢复历史版本",
+                {"chunkId": chunk.chunk_id, "versionId": version_id.strip()},
+            )
+        return "版本已恢复，输出文件已标记为需要重新生成。"
+    except AppError as exc:
+        return exc.message
+    except Exception as exc:
+        return f"恢复版本失败：{exc}"
+
+
+def regenerate_outputs(token: str | None, job_id: str | None) -> str:
+    if not job_id:
+        return "请先选择任务。"
+    try:
+        with session_scope() as db:
+            user = _user(db, token)
+            job = JobService(db, get_storage_paths()).get_job(job_id, user.user_id)
+            if job.status != "COMPLETED":
+                return "只有已完成任务可以重新生成输出。"
+            output_service = OutputService(db, get_storage_paths())
+            output_service.generate_documents(job_id)
+            output_service.generate_report(job_id)
+            output_service.generate_manifest_and_package(job_id)
+            ObjectStorageService(get_storage_paths()).sync_outputs(job)
+            job.outputs_stale = False
+            db.commit()
+            EventService(db).record_job_event(
+                job_id, "OUTPUT", "REGENERATED", "输出文件已重新生成"
+            )
+        return "输出文件已重新生成。"
+    except AppError as exc:
+        return exc.message
+    except Exception as exc:
+        return f"重新生成输出失败：{exc}"
+
+
 def ocr_visibility(file_path: str | None) -> Any:
     return gr.update(
         visible=bool(file_path and Path(file_path).suffix.lower() == ".pdf")
@@ -273,7 +441,27 @@ def ocr_visibility(file_path: str | None) -> Any:
 
 
 def refresh_dashboard(token: str | None, job_id: str | None) -> tuple[Any, ...]:
-    empty = ([], [], [], [], [], None, None, None, None, None, None, None)
+    empty = (
+        [],
+        [],
+        [],
+        [],
+        [],
+        "",
+        "",
+        "",
+        gr.update(choices=[], value=None),
+        "",
+        "",
+        [],
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
     if not job_id:
         return ("请选择左侧任务。", *empty)
     try:
@@ -305,6 +493,14 @@ def refresh_dashboard(token: str | None, job_id: str | None) -> tuple[Any, ...]:
             )
             events = EventService(db).list_events(job_id)
             reviews = ReviewService(db).list_reviews(job_id)
+            preview = PretranslationService(db).latest(job_id)
+            editable_chunks = [chunk for chunk in chunks if chunk.translated_text]
+            selected_chunk = editable_chunks[0] if editable_chunks else None
+            versions = (
+                ChunkEditService(db).list_versions(job_id, selected_chunk.chunk_id)
+                if selected_chunk
+                else []
+            )
             paths = get_storage_paths()
             return (
                 _job_html(job, service.queue_position(job_id)),
@@ -353,6 +549,16 @@ def refresh_dashboard(token: str | None, job_id: str | None) -> tuple[Any, ...]:
                     ]
                     for review in reviews
                 ],
+                preview.source_text if preview else "",
+                preview.translated_text if preview else "",
+                job.style_prompt or (preview.style_prompt if preview else "") or "",
+                gr.update(
+                    choices=_chunk_choices(editable_chunks),
+                    value=selected_chunk.chunk_id if selected_chunk else None,
+                ),
+                selected_chunk.source_text if selected_chunk else "",
+                selected_chunk.translated_text if selected_chunk else "",
+                _version_rows(versions),
                 _existing_output(paths.output_file(job_id, "bilingual")),
                 _existing_output(paths.output_file(job_id, "translated")),
                 _existing_output(paths.output_file(job_id, "report")),
@@ -393,19 +599,26 @@ def _job_html(job: Any, queue_position: int | None) -> str:
         if job.has_unresolved_risks
         else ""
     )
+    stale = (
+        '<div class="job-risk">译文已编辑，输出文件需要重新生成。</div>'
+        if job.outputs_stale
+        else ""
+    )
     error = (
         f'<div class="job-error">失败原因：{escape(job.error_message)}</div>'
         if job.error_message
         else ""
     )
     progress = max(0.0, min(100.0, float(job.progress_percent)))
+    model = escape(job.selected_model or "默认模型")
+    style = "已确认" if job.style_confirmed_at else "未确认"
     return (
         '<section class="job-summary-content">'
         f'<div class="job-title-row"><h2>{escape(job.original_filename)}</h2>'
         f"<strong>{status}</strong></div>"
         '<div class="job-language">'
         f"{source_language} <span>→</span> {escape(job.target_language.upper())}"
-        f"{queue}</div>"
+        f"{queue}<span>模型 {model}</span><span>风格 {style}</span></div>"
         '<div class="job-progress-track">'
         f'<span style="width:{progress:.1f}%"></span></div>'
         '<div class="job-stats">'
@@ -415,7 +628,7 @@ def _job_html(job: Any, queue_position: int | None) -> str:
         f"<span>阶段 <strong>{escape(_stage_label(job.current_stage))}</strong></span>"
         "</div>"
         f'<div class="job-updated">最后更新 {job.updated_at.strftime("%Y-%m-%d %H:%M:%S")}</div>'
-        f"{risk}{error}</section>"
+        f"{risk}{stale}{error}</section>"
     )
 
 
@@ -457,6 +670,8 @@ def _stage_label(stage: str) -> str:
         "split_sections": "结构化切分",
         "extract_terms": "抽取术语",
         "interrupt_for_term_review": "等待术语确认",
+        "pretranslate_sample": "生成预翻译",
+        "interrupt_for_style_review": "等待风格确认",
         "translate_chunk": "翻译片段",
         "mark_risks": "质量与风险检查",
         "summarize_chunk_context": "更新上下文摘要",
@@ -467,6 +682,30 @@ def _stage_label(stage: str) -> str:
         "completed": "已完成",
     }
     return labels.get(stage, stage.replace("_", " "))
+
+
+def _chunk_choices(chunks: list[DocumentChunk]) -> list[tuple[str, str]]:
+    return [
+        (
+            f"{chunk.chunk_index + 1} · {' / '.join(chunk.section_path or []) or chunk.section_title or '正文'}",
+            chunk.chunk_id,
+        )
+        for chunk in chunks
+    ]
+
+
+def _version_rows(versions: list[Any]) -> list[list[Any]]:
+    return [
+        [
+            version.version_id,
+            version.version_no,
+            version.source_type,
+            version.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+            version.model or "",
+            version.edit_note or "",
+        ]
+        for version in versions
+    ]
 
 
 def _duration(milliseconds: int | None) -> str:

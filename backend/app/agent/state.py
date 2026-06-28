@@ -16,10 +16,12 @@ class TranslationState(TypedDict, total=False):
     output_error: str | None
     current_chunk_id: str | None
     current_chunk_index: int | None
+    pretranslation_preview_id: str | None
     previous_summary: str | None
     translation_done: bool
     cancelled: bool
     quality_has_high_risk: bool
     review_result: dict[str, Any] | None
+    style_review_result: dict[str, Any] | None
     risk_review_result: dict[str, Any] | None
     chapter_review_result: dict[str, Any] | None

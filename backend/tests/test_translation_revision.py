@@ -29,7 +29,7 @@ class RevisionLLM:
         )
         return QualityResult(issues=issues), LLMResult(content='{"issues":[]}')
 
-    def revise_translation(self, original, translated, issues, terms):
+    def revise_translation(self, original, translated, issues, terms, style_prompt=None):
         return LLMResult(content="修订后的完整译文")
 
 

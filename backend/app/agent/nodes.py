@@ -26,11 +26,13 @@ from app.services.boundary_analysis import BoundaryAnalysisService
 from app.services.checkpoint_service import CheckpointService
 from app.services.chunk_service import ChunkService
 from app.services.document_ir_service import DocumentIRService
+from app.services.event_service import EventService
 from app.services.output_service import OutputService
 from app.services.llm_service import LLMService
 from app.services.memory_service import MemoryService
 from app.services.metric_service import MetricService
 from app.services.parser_service import ParserService
+from app.services.pretranslation_service import PretranslationService
 from app.services.review_service import ReviewService
 from app.services.term_service import TermService
 from app.services.translation_service import TranslationService
@@ -337,6 +339,50 @@ class WorkflowNodes:
         )
         return {"review_result": review_result}
 
+    def pretranslate_sample(self, state: TranslationState) -> dict[str, Any]:
+        with SessionLocal() as db:
+            job = self._job(db, state["job_id"])
+            if job.status == JobStatus.TRANSLATING.value and job.style_confirmed_at:
+                return {}
+            if job.status != JobStatus.WAITING_STYLE_REVIEW.value:
+                raise AppError(
+                    ErrorCode.INVALID_STATE,
+                    f"任务状态 {job.status} 不允许生成预翻译",
+                    status_code=409,
+                )
+            service = PretranslationService(db)
+            preview = service.latest(job.job_id) or service.generate(job.job_id)
+            EventService(db).record_job_event(
+                job.job_id,
+                "STYLE",
+                "PREVIEWED",
+                "预翻译样例已生成",
+                {"previewId": preview.preview_id, "attemptNo": preview.attempt_no},
+            )
+            CheckpointService(db).save(
+                job.job_id,
+                "pretranslate_sample",
+                {"previewId": preview.preview_id, "attemptNo": preview.attempt_no},
+            )
+            db.commit()
+            return {"pretranslation_preview_id": preview.preview_id}
+
+    def interrupt_for_style_review(self, state: TranslationState) -> dict[str, Any]:
+        with SessionLocal() as db:
+            job = self._job(db, state["job_id"])
+            if job.status == JobStatus.TRANSLATING.value and job.style_confirmed_at:
+                return {"style_review_result": {"confirmed": True}}
+            preview = PretranslationService(db).latest(job.job_id)
+            preview_id = preview.preview_id if preview else None
+        style_result = interrupt(
+            {
+                "jobId": state["job_id"],
+                "previewId": preview_id,
+                "message": "请确认预翻译风格后继续正式翻译",
+            }
+        )
+        return {"style_review_result": style_result}
+
     def translate_chunk(self, state: TranslationState) -> dict[str, Any]:
         with SessionLocal() as db:
             job = self._job(db, state["job_id"])
@@ -392,6 +438,20 @@ class WorkflowNodes:
             )
             job.updated_at = datetime.now(timezone.utc)
             db.commit()
+            EventService(db).record_job_event(
+                job.job_id,
+                "CHUNK",
+                "COMPLETED",
+                f"第 {translated.chunk_index + 1} 个片段已完成",
+                {
+                    "chunkId": translated.chunk_id,
+                    "chunkIndex": translated.chunk_index,
+                    "completedChunks": completed,
+                    "totalChunks": job.total_chunks,
+                    "progressPercent": job.progress_percent,
+                    "etaSeconds": job.eta_seconds,
+                },
+            )
             return {
                 "current_chunk_id": translated.chunk_id,
                 "current_chunk_index": translated.chunk_index,
@@ -636,6 +696,7 @@ class WorkflowNodes:
             job.completed_chunks = job.total_chunks
             job.progress_percent = 100
             job.eta_seconds = 0
+            job.outputs_stale = False
             job.completed_at = now
             job.retention_expires_at = now + timedelta(
                 days=get_settings().file_retention_days

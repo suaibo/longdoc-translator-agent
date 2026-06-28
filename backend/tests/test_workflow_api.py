@@ -143,9 +143,9 @@ def test_confirm_terms_resumes_workflow(
     )
 
     assert response.status_code == 200
-    assert response.json()["data"]["status"] == "TRANSLATING"
+    assert response.json()["data"]["status"] == "WAITING_STYLE_REVIEW"
     db_session.refresh(job)
-    assert job.status == "TRANSLATING"
+    assert job.status == "WAITING_STYLE_REVIEW"
 
 
 def test_outputs_require_completed_status(

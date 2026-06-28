@@ -35,6 +35,7 @@ async def create_job(
     mode: Annotated[str, Form()] = "paper",
     ocr_mode: Annotated[str, Form(alias="ocrMode")] = "auto",
     target_language: Annotated[str, Form(alias="targetLanguage")] = "zh",
+    selected_model: Annotated[str | None, Form(alias="selectedModel")] = None,
     require_high_risk_review: Annotated[
         bool, Form(alias="requireHighRiskReview")
     ] = False,
@@ -47,6 +48,7 @@ async def create_job(
         require_high_risk_review,
         require_chapter_review,
         target_language=target_language,
+        selected_model=selected_model,
         user_id=user.user_id,
     )
     worker.enqueue(job.job_id)
@@ -118,6 +120,10 @@ def serialize_job(
             "mode": job.mode,
             "source_language": job.source_language,
             "target_language": job.target_language,
+            "selected_model": job.selected_model,
+            "style_preset": job.style_preset,
+            "style_prompt": job.style_prompt,
+            "style_confirmed_at": job.style_confirmed_at,
             "status": job.status,
             "current_stage": job.current_stage,
             "total_chunks": job.total_chunks,
@@ -126,6 +132,7 @@ def serialize_job(
             "eta_seconds": job.eta_seconds,
             "queue_position": queue_position,
             "has_unresolved_risks": job.has_unresolved_risks,
+            "outputs_stale": job.outputs_stale,
             "require_high_risk_review": job.require_high_risk_review,
             "require_chapter_review": job.require_chapter_review,
             "error_code": job.error_code,

@@ -38,11 +38,28 @@ class EventService:
         self.db.commit()
         return event
 
-    def list_events(self, job_id: str) -> list[WorkflowEvent]:
-        return list(
-            self.db.scalars(
-                select(WorkflowEvent)
-                .where(WorkflowEvent.job_id == job_id)
-                .order_by(WorkflowEvent.created_at)
-            )
+    def list_events(
+        self, job_id: str, *, after_seq: int | None = None
+    ) -> list[WorkflowEvent]:
+        statement = select(WorkflowEvent).where(WorkflowEvent.job_id == job_id)
+        if after_seq is not None:
+            statement = statement.where(WorkflowEvent.event_seq > after_seq)
+        statement = statement.order_by(WorkflowEvent.event_seq, WorkflowEvent.created_at)
+        return list(self.db.scalars(statement))
+
+    def record_job_event(
+        self,
+        job_id: str,
+        event_type: str,
+        status: str,
+        message: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> WorkflowEvent:
+        return self.record(
+            job_id,
+            event_type.lower(),
+            event_type,
+            status,
+            message=message,
+            metadata=metadata,
         )

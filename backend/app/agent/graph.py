@@ -113,6 +113,8 @@ def build_workflow(checkpointer=None):
         "split_sections": nodes.split_sections,
         "extract_terms": nodes.extract_terms,
         "interrupt_for_term_review": nodes.interrupt_for_term_review,
+        "pretranslate_sample": nodes.pretranslate_sample,
+        "interrupt_for_style_review": nodes.interrupt_for_style_review,
         "translate_chunk": nodes.translate_chunk,
         "mark_risks": nodes.mark_risks,
         "check_cross_chunk_coherence": nodes.check_cross_chunk_coherence,
@@ -163,7 +165,9 @@ def build_workflow(checkpointer=None):
 
     builder.add_edge("split_sections", "extract_terms")
     builder.add_edge("extract_terms", "interrupt_for_term_review")
-    builder.add_edge("interrupt_for_term_review", "translate_chunk")
+    builder.add_edge("interrupt_for_term_review", "pretranslate_sample")
+    builder.add_edge("pretranslate_sample", "interrupt_for_style_review")
+    builder.add_edge("interrupt_for_style_review", "translate_chunk")
     builder.add_conditional_edges(
         "translate_chunk",
         nodes.route_after_translation,

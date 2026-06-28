@@ -50,9 +50,11 @@ def confirm_terms(
     db: Annotated[Session, Depends(get_db)],
     worker: Annotated[WorkerService, Depends(get_background_worker)],
 ) -> dict[str, Any]:
-    JobService(db, get_storage_paths()).get_job(job_id, user.user_id)
+    job_service = JobService(db, get_storage_paths())
+    job = job_service.get_job(job_id, user.user_id)
     TermService(db).confirm(job_id, request.terms)
+    db.refresh(job)
     worker.resume_review(job_id)
     return success(
-        JobStatusResponse(job_id=job_id, status="TRANSLATING").model_dump(by_alias=True)
+        JobStatusResponse(job_id=job_id, status=job.status).model_dump(by_alias=True)
     )

@@ -143,3 +143,13 @@ docs/             需求、架构、接口、数据库、UI 和测试文档
 ## License
 
 [MIT License](LICENSE)
+
+## 2026-06-28 功能增补
+
+本项目已加入预翻译和风格 Prompt、用户选择模型、在线编辑与版本历史、SSE 实时推送的第一版实现。
+
+- 模型选择：服务器通过 `LLM_MODEL_OPTIONS_JSON` 配置可选模型白名单；用户创建任务时只能选择白名单模型，不在前端暴露 API Key 或 Base URL。
+- 预翻译：术语确认后任务进入 `WAITING_STYLE_REVIEW`，系统用前几个普通正文 chunk 生成预翻译样例；用户确认风格后才进入正式 chunk 翻译。
+- 风格 Prompt：保存到任务级 `style_prompt`，正式翻译和自动修订都会携带；但不能覆盖邮箱、URL、公式、引用、表格结构和作者信息保护规则。
+- 在线编辑：任务结束后可以编辑已完成 chunk 的译文；每次保存都会生成不可变版本历史，并将输出标记为需要重新生成。
+- 实时推送：新增事件序列 `eventSeq`、短期 stream token 和 `GET /api/jobs/{jobId}/events/stream` SSE 接口；Gradio 保留 2 秒轮询作为兼容兜底。

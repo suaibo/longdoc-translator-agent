@@ -106,8 +106,8 @@ class TermService:
             entry.note = confirmation.note
             entry.confirmed = True
             entry.updated_at = now
-        job.status = JobStatus.TRANSLATING.value
-        job.current_stage = "translate_chunk"
+        job.status = JobStatus.WAITING_STYLE_REVIEW.value
+        job.current_stage = "pretranslate_sample"
         job.updated_at = now
         self.db.commit()
         return entries

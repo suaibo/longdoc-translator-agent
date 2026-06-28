@@ -12,6 +12,7 @@ from app.models.document_chunk import DocumentChunk
 from app.models.enums import ChunkStatus, RiskType
 from app.models.risk_item import RiskItem
 from app.models.translation_job import TranslationJob
+from app.services.chunk_edit_service import ChunkEditService
 from app.services.llm_service import LLMService
 from app.services.metric_service import MetricService
 from app.services.memory_service import MemoryService
@@ -55,15 +56,24 @@ class TranslationService:
         chunk.updated_at = datetime.now(timezone.utc)
         self.db.commit()
         try:
+            job = self._job(job_id)
             if self._translation_protected(chunk):
                 chunk.translated_text = chunk.source_text
                 chunk.status = ChunkStatus.COMPLETED.value
                 chunk.translated_at = datetime.now(timezone.utc)
                 chunk.updated_at = chunk.translated_at
+                ChunkEditService(self.db).record_version(
+                    job,
+                    chunk,
+                    "LLM_TRANSLATION",
+                    chunk.source_text,
+                    edit_note="translation protected",
+                    model=job.selected_model,
+                )
                 self.db.commit()
                 self.db.refresh(chunk)
                 return chunk
-            llm = self.llm or LLMService()
+            llm = self.llm or self._job_llm(job)
             BudgetService(self.db).assert_available(job_id)
             result = llm.translate_chunk(
                 chunk.source_text,
@@ -74,7 +84,8 @@ class TranslationService:
                 if self._job_mode(job_id) == "novel"
                 else None,
                 self._profile(chunk),
-                self._target_language(job_id),
+                job.target_language,
+                job.style_prompt,
             )
             chunk.translated_text = result.content
             chunk.status = ChunkStatus.COMPLETED.value
@@ -84,6 +95,13 @@ class TranslationService:
                 job_id,
                 result,
                 chunk_id=chunk.chunk_id,
+            )
+            ChunkEditService(self.db).record_version(
+                job,
+                chunk,
+                "LLM_TRANSLATION",
+                result.content,
+                model=result.model,
             )
             self.db.commit()
             self.db.refresh(chunk)
@@ -109,7 +127,8 @@ class TranslationService:
             chunk.updated_at = datetime.now(timezone.utc)
             self.db.commit()
             return chunk.context_summary
-        llm = self.llm or LLMService()
+        job = self._job(job_id)
+        llm = self.llm or self._job_llm(job)
         BudgetService(self.db).assert_available(job_id)
         result = llm.summarize_chunk(chunk.source_text, chunk.translated_text)
         chunk.context_summary = result.content
@@ -127,7 +146,8 @@ class TranslationService:
             return []
         if self._translation_protected(chunk):
             return []
-        llm = self.llm or LLMService()
+        job = self._job(job_id)
+        llm = self.llm or self._job_llm(job)
         BudgetService(self.db).assert_available(job_id)
         quality, result = llm.check_quality(chunk.source_text, chunk.translated_text)
         MetricService(self.db).record(
@@ -147,6 +167,7 @@ class TranslationService:
                 chunk.translated_text,
                 [issue.model_dump() for issue in high_issues],
                 TermService(self.db).confirmed_map(job_id),
+                job.style_prompt,
             )
             MetricService(self.db).record(
                 job_id,
@@ -156,6 +177,14 @@ class TranslationService:
             chunk.translated_text = revised.content
             chunk.revision_count += 1
             chunk.updated_at = datetime.now(timezone.utc)
+            ChunkEditService(self.db).record_version(
+                job,
+                chunk,
+                "AUTO_REVISION",
+                revised.content,
+                edit_note="quality revision",
+                model=revised.model,
+            )
             self.db.commit()
 
             BudgetService(self.db).assert_available(job_id)
@@ -246,12 +275,24 @@ class TranslationService:
         )
 
     def _target_language(self, job_id: str) -> str:
-        job = self.db.get(TranslationJob, job_id)
-        return job.target_language if job else "zh"
+        return self._job(job_id).target_language
 
     def _job_mode(self, job_id: str) -> str:
+        return self._job(job_id).mode
+
+    def _job(self, job_id: str) -> TranslationJob:
         job = self.db.get(TranslationJob, job_id)
-        return job.mode if job else "paper"
+        if job is None:
+            raise AppError(ErrorCode.JOB_NOT_FOUND, status_code=404)
+        return job
+
+    @staticmethod
+    def _job_llm(job: TranslationJob) -> LLMService:
+        overrides = {}
+        if job.selected_model:
+            overrides["translation"] = job.selected_model
+            overrides["summary"] = job.selected_model
+        return LLMService(task_model_overrides=overrides)
 
     @staticmethod
     def _profile(chunk: DocumentChunk) -> str:

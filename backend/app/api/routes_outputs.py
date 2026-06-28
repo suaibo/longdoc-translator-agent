@@ -10,6 +10,7 @@ from app.core.response import success
 from app.db.session import get_db
 from app.models.enums import JobStatus
 from app.schemas.output import OutputItem
+from app.services.event_service import EventService
 from app.services.job_service import JobService
 from app.services.output_service import OUTPUT_TYPES, OutputService
 from app.storage.object_store import ObjectStorageService
@@ -66,6 +67,30 @@ def download_output(
             return RedirectResponse(url=url, status_code=307)
     path = service.get_output(job_id, output_type)
     return FileResponse(path, filename=filename, media_type=media_type)
+
+
+@router.post("/outputs/regenerate")
+def regenerate_outputs(
+    job_id: str,
+    user: CurrentUser,
+    service: Annotated[OutputService, Depends(get_output_service)],
+) -> dict[str, Any]:
+    job = _owned_job(service, job_id, user.user_id)
+    if job.status != JobStatus.COMPLETED.value:
+        raise AppError(ErrorCode.INVALID_STATE, status_code=409)
+    service.generate_documents(job_id)
+    service.generate_report(job_id)
+    service.generate_manifest_and_package(job_id)
+    ObjectStorageService(service.paths).sync_outputs(job)
+    job.outputs_stale = False
+    service.db.commit()
+    EventService(service.db).record_job_event(
+        job_id,
+        "OUTPUT",
+        "REGENERATED",
+        "输出文件已根据当前译文重新生成",
+    )
+    return success({"jobId": job_id, "outputsStale": False})
 
 
 @router.get("/source")

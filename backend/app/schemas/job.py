@@ -16,6 +16,10 @@ class JobResponse(BaseModel):
     mode: str
     source_language: str | None
     target_language: str
+    selected_model: str | None
+    style_preset: str | None
+    style_prompt: str | None
+    style_confirmed_at: datetime | None
     status: str
     current_stage: str
     total_chunks: int
@@ -24,6 +28,7 @@ class JobResponse(BaseModel):
     eta_seconds: int | None
     queue_position: int | None = None
     has_unresolved_risks: bool
+    outputs_stale: bool
     require_high_risk_review: bool
     require_chapter_review: bool
     error_code: str | None

@@ -31,6 +31,7 @@ class FakeLLM:
         story_memory=None,
         profile: str = "text",
         target_language: str = "zh",
+        style_prompt: str | None = None,
     ) -> LLMResult:
         translated = source_text.replace(
             "checkpoint", terms.get("checkpoint", "检查点")
@@ -49,6 +50,7 @@ class FakeLLM:
         translated: str,
         issues: list[dict[str, str]],
         terms: dict[str, str],
+        style_prompt: str | None = None,
     ) -> LLMResult:
         return self.result(translated)
 

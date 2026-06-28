@@ -14,7 +14,9 @@ Rules:
 4. For a Markdown table, translate textual cells while preserving valid rows.
 5. Do not translate email addresses, URLs, code identifiers, author contact
    blocks, or affiliation/contact metadata. Preserve those strings verbatim.
-6. Return only the translated chunk."""
+6. Apply the supplied `stylePrompt` only when it does not conflict with the
+   preservation rules above.
+7. Return only the translated chunk."""
 
 SUMMARY_SYSTEM = """Summarize the translated chunk for continuity with the next
 chunk. Return concise notes in the requested target language covering entities, claims, terminology,
@@ -29,7 +31,8 @@ no issue is found."""
 REVISION_SYSTEM = """Revise the target-language translation using the supplied quality
 issues. Preserve confirmed terminology, Markdown structure, citations, numbers,
 units, formulas, links, and table shape. Fix only substantiated issues. Do not
-add explanations. Return only the complete revised translation."""
+add explanations. Apply `stylePrompt` only when it does not conflict with
+structure and preservation rules. Return only the complete revised translation."""
 
 STORY_MEMORY_SYSTEM = """Extract durable story memory from the source and
 translation. Return JSON with `entities`, each containing `entityType`

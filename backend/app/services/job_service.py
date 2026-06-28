@@ -12,6 +12,7 @@ from app.core.errors import AppError, ErrorCode
 from app.models.enums import JobStatus
 from app.models.job_queue import JobQueue
 from app.models.translation_job import TranslationJob
+from app.services.model_catalog_service import ModelCatalogService
 from app.storage.object_store import ObjectStorageService
 from app.storage.paths import StoragePaths
 
@@ -21,6 +22,7 @@ ACTIVE_STATUSES = {
     JobStatus.UPLOADED.value,
     JobStatus.PARSED.value,
     JobStatus.WAITING_TERM_REVIEW.value,
+    JobStatus.WAITING_STYLE_REVIEW.value,
     JobStatus.WAITING_RISK_REVIEW.value,
     JobStatus.WAITING_CHAPTER_REVIEW.value,
     JobStatus.TRANSLATING.value,
@@ -47,11 +49,13 @@ class JobService:
         require_high_risk_review: bool = False,
         require_chapter_review: bool = False,
         target_language: str = "zh",
+        selected_model: str | None = None,
         user_id: str = "usr_legacy",
     ) -> TranslationJob:
         original_filename, extension = self._validate_request(
             upload.filename, mode, ocr_mode, target_language
         )
+        selected_model = ModelCatalogService().validate(selected_model)
         job_id, upload_dir, stored_path = self._allocate_upload(extension)
         try:
             await self._save_upload(upload, stored_path)
@@ -68,6 +72,7 @@ class JobService:
                 target_language,
                 require_high_risk_review,
                 require_chapter_review,
+                selected_model,
             )
         except Exception:
             self.db.rollback()
@@ -85,12 +90,14 @@ class JobService:
         require_high_risk_review: bool = False,
         require_chapter_review: bool = False,
         target_language: str = "zh",
+        selected_model: str | None = None,
         user_id: str = "usr_legacy",
     ) -> TranslationJob:
         """Create a job from a Gradio temporary file without internal HTTP calls."""
         original_filename, extension = self._validate_request(
             original_filename, mode, ocr_mode, target_language
         )
+        selected_model = ModelCatalogService().validate(selected_model)
         job_id, upload_dir, stored_path = self._allocate_upload(extension)
         try:
             self._copy_upload(source, stored_path)
@@ -107,6 +114,7 @@ class JobService:
                 target_language,
                 require_high_risk_review,
                 require_chapter_review,
+                selected_model,
             )
         except Exception:
             self.db.rollback()
@@ -200,6 +208,7 @@ class JobService:
         target_language: str,
         require_high_risk_review: bool,
         require_chapter_review: bool,
+        selected_model: str,
     ) -> TranslationJob:
         now = datetime.now(timezone.utc)
         job = TranslationJob(
@@ -217,6 +226,10 @@ class JobService:
             ocr_mode=ocr_mode,
             source_language=None,
             target_language=target_language,
+            selected_model=selected_model,
+            style_preset=None,
+            style_prompt=None,
+            style_confirmed_at=None,
             workflow_version=self.settings.workflow_version,
             prompt_version=self.settings.prompt_version,
             max_token_budget=self.settings.job_max_token_budget,
@@ -227,6 +240,7 @@ class JobService:
             current_stage="uploaded",
             eta_seconds=None,
             has_unresolved_risks=False,
+            outputs_stale=False,
             retention_expires_at=now
             + timedelta(days=self.settings.file_retention_days),
             created_at=now,

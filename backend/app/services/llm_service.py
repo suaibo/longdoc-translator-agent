@@ -56,6 +56,7 @@ class LLMService:
         self,
         client: Any | None = None,
         fallback_client: Any | None = None,
+        task_model_overrides: dict[str, str] | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.settings = get_settings()
@@ -71,6 +72,7 @@ class LLMService:
                 self.settings.llm_base_url,
             )
         self.client = client
+        self.task_model_overrides = task_model_overrides or {}
         self.endpoints = [LLMEndpoint("deepseek", client, self.settings.llm_model)]
         if fallback_client is not None:
             self.endpoints.append(
@@ -173,6 +175,7 @@ class LLMService:
         story_memory: dict[str, Any] | None = None,
         profile: str = "text",
         target_language: str = "zh",
+        style_prompt: str | None = None,
     ) -> LLMResult:
         context = {
             "confirmedTerms": terms,
@@ -182,6 +185,7 @@ class LLMService:
             "storyMemory": story_memory or {},
             "translationProfile": profile,
             "targetLanguage": target_language,
+            "stylePrompt": style_prompt or "",
         }
         return self._chat(
             [
@@ -267,6 +271,7 @@ class LLMService:
         translated: str,
         issues: list[dict[str, str]],
         terms: dict[str, str],
+        style_prompt: str | None = None,
     ) -> LLMResult:
         return self._chat(
             [
@@ -279,6 +284,7 @@ class LLMService:
                             "translation": translated,
                             "issues": issues,
                             "confirmedTerms": terms,
+                            "stylePrompt": style_prompt or "",
                         },
                         ensure_ascii=False,
                     ),
@@ -356,6 +362,8 @@ class LLMService:
     def _model_for(self, task: str, endpoint: LLMEndpoint) -> str:
         if endpoint.provider == "fallback":
             return endpoint.default_model
+        if self.task_model_overrides.get(task):
+            return self.task_model_overrides[task]
         routed = {
             "terms": self.settings.llm_term_model,
             "translation": self.settings.llm_translation_model,

@@ -142,6 +142,8 @@ class WorkerService:
                 "split_sections",
                 "extract_terms",
                 "interrupt_for_term_review",
+                "pretranslate_sample",
+                "interrupt_for_style_review",
             }
             if job.current_stage == "parse_document":
                 job.status = JobStatus.UPLOADED.value

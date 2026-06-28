@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.deepseek.com"
     llm_api_key: str = ""
     llm_model: str = "deepseek-v4-flash"
+    llm_model_options_json: str = ""
     llm_term_model: str = ""
     llm_translation_model: str = ""
     llm_summary_model: str = ""
@@ -72,6 +73,8 @@ class Settings(BaseSettings):
     workflow_version: str = "1"
     prompt_version: str = "1"
     workflow_node_timeout_seconds: float = 1800
+    stream_token_secret: str = ""
+    stream_token_ttl_seconds: int = 600
 
     ocr_engine: str = "rapidocr-onnxruntime"
     default_ocr_mode: str = "auto"

@@ -31,6 +31,10 @@ class TranslationJob(Base):
     ocr_mode: Mapped[str] = mapped_column(default="auto")
     source_language: Mapped[str | None]
     target_language: Mapped[str] = mapped_column(default="zh")
+    selected_model: Mapped[str | None]
+    style_preset: Mapped[str | None]
+    style_prompt: Mapped[str | None]
+    style_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     workflow_version: Mapped[str] = mapped_column(default="1")
     prompt_version: Mapped[str] = mapped_column(default="1")
     status: Mapped[str]
@@ -40,6 +44,7 @@ class TranslationJob(Base):
     progress_percent: Mapped[float] = mapped_column(default=0)
     eta_seconds: Mapped[int | None]
     has_unresolved_risks: Mapped[bool] = mapped_column(default=False)
+    outputs_stale: Mapped[bool] = mapped_column(default=False)
     error_code: Mapped[str | None]
     error_message: Mapped[str | None]
     retry_count: Mapped[int] = mapped_column(default=0)
@@ -76,6 +81,14 @@ class TranslationJob(Base):
     )
     reviews = relationship(
         "ReviewRequest", back_populates="job", cascade="all, delete-orphan"
+    )
+    pretranslation_previews = relationship(
+        "PretranslationPreview", back_populates="job", cascade="all, delete-orphan"
+    )
+    chunk_versions = relationship(
+        "ChunkTranslationVersion",
+        back_populates="job",
+        cascade="all, delete-orphan",
     )
     story_memories = relationship(
         "StoryMemory", back_populates="job", cascade="all, delete-orphan"

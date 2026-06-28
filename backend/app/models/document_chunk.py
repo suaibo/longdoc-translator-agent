@@ -44,3 +44,8 @@ class DocumentChunk(Base):
     job = relationship("TranslationJob", back_populates="chunks")
     metrics = relationship("TranslationMetric", back_populates="chunk")
     risks = relationship("RiskItem", back_populates="chunk")
+    versions = relationship(
+        "ChunkTranslationVersion",
+        back_populates="chunk",
+        cascade="all, delete-orphan",
+    )
