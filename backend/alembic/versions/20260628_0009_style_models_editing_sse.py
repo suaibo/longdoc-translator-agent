@@ -118,7 +118,7 @@ def upgrade() -> None:
              translated_text, edit_note, created_by_user_id, model,
              prompt_version, created_at)
         SELECT
-            'ver_' || md5(c.chunk_id || ':1'),
+            'ver_' || md5(c.chunk_id || '-v1'),
             c.job_id,
             c.chunk_id,
             1,
