@@ -23,6 +23,21 @@ CSS = """
 footer { display: none !important; }
 .app-header { border-bottom: 1px solid var(--line); padding-bottom: 14px; }
 .app-header h1 { color: var(--ink) !important; font-size: 24px !important; margin: 0 !important; }
+.app-header p,
+.gradio-container .prose p,
+.gradio-container .markdown p {
+  color: var(--muted) !important;
+  opacity: 1 !important;
+}
+.gradio-container .prose h1,
+.gradio-container .prose h2,
+.gradio-container .prose h3,
+.gradio-container .markdown h1,
+.gradio-container .markdown h2,
+.gradio-container .markdown h3 {
+  color: var(--ink) !important;
+  opacity: 1 !important;
+}
 .gradio-container label,
 .gradio-container .block-label,
 .gradio-container .block-info,
@@ -57,6 +72,46 @@ footer { display: none !important; }
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+.login-shell,
+.login-shell .block,
+.login-shell .form,
+.login-shell .wrap,
+.login-shell .contain,
+.login-shell .input-container {
+  background: var(--surface) !important;
+  color: var(--ink) !important;
+  border-color: var(--line) !important;
+  box-shadow: none !important;
+}
+.login-shell h2 {
+  color: var(--ink) !important;
+  opacity: 1 !important;
+}
+.login-shell p,
+.login-shell .block-info {
+  color: #51616a !important;
+  opacity: 1 !important;
+}
+.login-shell label,
+.login-shell label span,
+.login-shell .block-label {
+  color: #243238 !important;
+  opacity: 1 !important;
+}
+.login-shell input {
+  background: #ffffff !important;
+  color: #111827 !important;
+  border: 1px solid #cbd5da !important;
+  box-shadow: none !important;
+}
+.login-shell input::placeholder {
+  color: #6b7280 !important;
+  opacity: 1 !important;
+}
+.login-shell button,
+.login-shell button span {
+  color: #ffffff !important;
 }
 .sidebar { min-width: 310px; border-right: 1px solid var(--line); padding-right: 18px; }
 .main-pane { padding-left: 8px; min-width: 0; }
