@@ -33,11 +33,13 @@ def test_langgraph_interrupt_resume_completes_full_workflow(
 
     import app.agent.nodes as node_module
     import app.agent.graph as graph_module
+    import app.services.pretranslation_service as pretranslation_module
     import app.services.term_service as term_module
     import app.services.translation_service as translation_module
 
     monkeypatch.setattr(node_module, "SessionLocal", factory)
     monkeypatch.setattr(graph_module, "SessionLocal", factory)
+    monkeypatch.setattr(pretranslation_module, "LLMService", FakeLLM)
     monkeypatch.setattr(term_module, "LLMService", FakeLLM)
     monkeypatch.setattr(translation_module, "LLMService", FakeLLM)
     try:
@@ -78,6 +80,20 @@ def test_langgraph_interrupt_resume_completes_full_workflow(
         with factory() as db:
             waiting = db.get(TranslationJob, job_id)
             assert waiting is not None
+            assert waiting.status == "WAITING_STYLE_REVIEW"
+
+        with factory() as db:
+            waiting = db.get(TranslationJob, job_id)
+            assert waiting is not None
+            from app.services.pretranslation_service import PretranslationService
+
+            PretranslationService(db).confirm_style(job_id, "formal academic style")
+
+        runner.run(job_id, {"styleConfirmed": True})
+
+        with factory() as db:
+            waiting = db.get(TranslationJob, job_id)
+            assert waiting is not None
             assert waiting.status == "WAITING_CHAPTER_REVIEW"
             review = ReviewService(db).list_reviews(job_id)[0]
             ReviewService(db).approve(job_id, review.review_id, "integration checked")
@@ -95,6 +111,11 @@ def test_langgraph_interrupt_resume_completes_full_workflow(
             events = EventService(db).list_events(job_id)
             assert any(
                 event.node == "interrupt_for_term_review"
+                and event.status == "INTERRUPTED"
+                for event in events
+            )
+            assert any(
+                event.node == "interrupt_for_style_review"
                 and event.status == "INTERRUPTED"
                 for event in events
             )

@@ -5,7 +5,7 @@ from app.schemas.term import TermSuggestion
 
 
 class FakeLLM:
-    def __init__(self) -> None:
+    def __init__(self, *args, **kwargs) -> None:
         self.settings = SimpleNamespace(llm_model="deepseek-test")
 
     def extract_terms(self, text: str, target_language: str = "zh"):
