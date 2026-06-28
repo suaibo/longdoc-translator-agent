@@ -31,10 +31,24 @@ def test_gradio_handler_creates_and_reads_job(
     assert job_id is not None
     assert "后台队列" in message
     result = handlers.refresh_dashboard(token, job_id)
-    summary, terms, chunks, risks, events, reviews = result[:6]
-    preview_and_editor_state = result[6:13]
-    file_outputs = result[13:]
+    summary = result[0]
+    stage_flow = result[1]
+    panel_updates = result[2:8]
+    terms, chunks, risks, events, reviews = result[8:13]
+    preview_and_editor_state = result[13:20]
+    file_outputs = result[20:27]
+    detail_terms, detail_chunks, detail_risks, detail_reviews = result[27:31]
     assert "等待处理" in summary
+    assert stage_flow["visible"] is True
+    assert "stage-steps" in stage_flow["value"]
+    assert [panel["visible"] for panel in panel_updates] == [
+        False,
+        True,
+        False,
+        False,
+        False,
+        False,
+    ]
     assert terms == []
     assert chunks == []
     assert risks == []
@@ -48,3 +62,7 @@ def test_gradio_handler_creates_and_reads_job(
     assert preview_and_editor_state[6] == []
     assert all(output is None for output in file_outputs[:-1])
     assert file_outputs[-1] is not None
+    assert detail_terms == []
+    assert detail_chunks == []
+    assert detail_risks == []
+    assert detail_reviews == []

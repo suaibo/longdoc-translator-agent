@@ -442,6 +442,13 @@ def ocr_visibility(file_path: str | None) -> Any:
 
 def refresh_dashboard(token: str | None, job_id: str | None) -> tuple[Any, ...]:
     empty = (
+        gr.update(value="", visible=False),
+        gr.update(visible=True),
+        gr.update(visible=False),
+        gr.update(visible=False),
+        gr.update(visible=False),
+        gr.update(visible=False),
+        gr.update(visible=False),
         [],
         [],
         [],
@@ -461,6 +468,10 @@ def refresh_dashboard(token: str | None, job_id: str | None) -> tuple[Any, ...]:
         None,
         None,
         None,
+        [],
+        [],
+        [],
+        [],
     )
     if not job_id:
         return ("请选择左侧任务。", *empty)
@@ -502,53 +513,60 @@ def refresh_dashboard(token: str | None, job_id: str | None) -> tuple[Any, ...]:
                 else []
             )
             paths = get_storage_paths()
+            term_rows = [
+                [
+                    term.source_term,
+                    term.suggested_translation,
+                    term.confirmed_translation or "",
+                    term.note or "",
+                    term.confirmed,
+                ]
+                for term in terms
+            ]
+            chunk_rows = [
+                [
+                    chunk.chunk_index + 1,
+                    " / ".join(chunk.section_path or [])
+                    or chunk.section_title
+                    or "正文",
+                    chunk.chunk_type,
+                    STATUS_LABELS.get(chunk.status, chunk.status),
+                    chunk.token_estimate,
+                    "需复核" if chunk.has_risk else "正常",
+                ]
+                for chunk in chunks
+            ]
+            risk_rows = [_risk_row(risk, chunks) for risk in risks]
+            event_rows = [
+                [
+                    event.created_at.strftime("%m-%d %H:%M:%S"),
+                    _stage_label(event.node),
+                    event.status,
+                    _duration(event.elapsed_ms),
+                    event.message or "",
+                ]
+                for event in events
+            ]
+            review_rows = [
+                [
+                    "高风险片段"
+                    if review.review_type == "HIGH_RISK_CHUNK"
+                    else "章节确认",
+                    _review_location(review.payload_json),
+                    "待确认" if review.status == "PENDING" else "已通过",
+                    review.resolution_note or "",
+                ]
+                for review in reviews
+            ]
             return (
                 _job_html(job, service.queue_position(job_id)),
-                [
-                    [
-                        term.source_term,
-                        term.suggested_translation,
-                        term.confirmed_translation or "",
-                        term.note or "",
-                        term.confirmed,
-                    ]
-                    for term in terms
-                ],
-                [
-                    [
-                        chunk.chunk_index + 1,
-                        " / ".join(chunk.section_path or [])
-                        or chunk.section_title
-                        or "正文",
-                        chunk.chunk_type,
-                        STATUS_LABELS.get(chunk.status, chunk.status),
-                        chunk.token_estimate,
-                        "需复核" if chunk.has_risk else "正常",
-                    ]
-                    for chunk in chunks
-                ],
-                [_risk_row(risk, chunks) for risk in risks],
-                [
-                    [
-                        event.created_at.strftime("%m-%d %H:%M:%S"),
-                        _stage_label(event.node),
-                        event.status,
-                        _duration(event.elapsed_ms),
-                        event.message or "",
-                    ]
-                    for event in events
-                ],
-                [
-                    [
-                        "高风险片段"
-                        if review.review_type == "HIGH_RISK_CHUNK"
-                        else "章节确认",
-                        _review_location(review.payload_json),
-                        "待确认" if review.status == "PENDING" else "已通过",
-                        review.resolution_note or "",
-                    ]
-                    for review in reviews
-                ],
+                gr.update(value=_stage_html(job), visible=True),
+                *_stage_panel_updates(job.status),
+                term_rows,
+                chunk_rows,
+                risk_rows,
+                event_rows,
+                review_rows,
                 preview.source_text if preview else "",
                 preview.translated_text if preview else "",
                 job.style_prompt or (preview.style_prompt if preview else "") or "",
@@ -566,11 +584,28 @@ def refresh_dashboard(token: str | None, job_id: str | None) -> tuple[Any, ...]:
                 _existing_output(paths.output_file(job_id, "translated_html")),
                 _existing_output(paths.output_file(job_id, "package")),
                 _existing_output(Path(job.original_file_path)),
+                term_rows,
+                chunk_rows,
+                risk_rows,
+                review_rows,
             )
     except AppError as exc:
         return (exc.message, *empty)
     except Exception as exc:
         return (f"刷新失败：{exc}", *empty)
+
+
+def _stage_panel_updates(status: str) -> tuple[Any, ...]:
+    progress_statuses = {"UPLOADED", "PARSED", "TRANSLATING", "FAILED", "CANCELLED"}
+    review_statuses = {"WAITING_RISK_REVIEW", "WAITING_CHAPTER_REVIEW"}
+    return (
+        gr.update(visible=False),
+        gr.update(visible=status in progress_statuses),
+        gr.update(visible=status == "WAITING_TERM_REVIEW"),
+        gr.update(visible=status == "WAITING_STYLE_REVIEW"),
+        gr.update(visible=status in review_statuses),
+        gr.update(visible=status == "COMPLETED"),
+    )
 
 
 def _user(db: Session, token: str | None):
@@ -629,6 +664,74 @@ def _job_html(job: Any, queue_position: int | None) -> str:
         "</div>"
         f'<div class="job-updated">最后更新 {job.updated_at.strftime("%Y-%m-%d %H:%M:%S")}</div>'
         f"{risk}{stale}{error}</section>"
+    )
+
+
+def _stage_html(job: Any) -> str:
+    status = job.status
+    status_to_step = {
+        "UPLOADED": "parse",
+        "PARSED": "parse",
+        "WAITING_TERM_REVIEW": "terms",
+        "WAITING_STYLE_REVIEW": "style",
+        "TRANSLATING": "translate",
+        "WAITING_RISK_REVIEW": "translate",
+        "WAITING_CHAPTER_REVIEW": "translate",
+        "COMPLETED": "output",
+        "FAILED": "translate",
+        "CANCELLED": "translate",
+    }
+    current = status_to_step.get(status, "parse")
+    blocked_statuses = {
+        "WAITING_RISK_REVIEW",
+        "WAITING_CHAPTER_REVIEW",
+        "FAILED",
+        "CANCELLED",
+    }
+    steps = [
+        ("create", "创建任务", "文件和参数已保存"),
+        ("parse", "解析切分", "结构、语言和分块"),
+        ("terms", "术语确认", "人工校准术语"),
+        ("style", "风格确认", "预翻译与 Prompt"),
+        ("translate", "后台翻译", "进度、风险和恢复"),
+        ("output", "结果交付", "下载、编辑和版本"),
+    ]
+    current_index = next(
+        (index for index, step in enumerate(steps) if step[0] == current), 1
+    )
+    items = []
+    for index, (key, title, desc) in enumerate(steps):
+        if index < current_index or status == "COMPLETED":
+            css_class = "done"
+        elif key == current:
+            css_class = "blocked" if status in blocked_statuses else "active"
+        else:
+            css_class = ""
+        items.append(
+            '<div class="stage-step {css_class}"><strong>{title}</strong>{desc}</div>'.format(
+                css_class=css_class,
+                title=escape(title),
+                desc=escape(desc),
+            )
+        )
+    notes = {
+        "UPLOADED": "任务已进入后台队列；如果并发名额已满，会先排队等待 Worker 领取。",
+        "PARSED": "文档结构已经解析，正在继续进入术语或翻译前准备。",
+        "WAITING_TERM_REVIEW": "当前需要你确认术语表。确认后系统会生成预翻译样例。",
+        "WAITING_STYLE_REVIEW": "当前需要你确认翻译风格。可以修改 Prompt 并重新预翻译。",
+        "TRANSLATING": "当前任务正在后台翻译。页面关闭后 Worker 仍会继续处理。",
+        "WAITING_RISK_REVIEW": "当前任务因高风险片段暂停。请检查风险说明后决定是否继续。",
+        "WAITING_CHAPTER_REVIEW": "当前任务在章节结束处暂停。确认后继续处理后续章节。",
+        "COMPLETED": "任务已经完成，可以下载结果、编辑译文或重新生成输出。",
+        "FAILED": "任务失败但检查点仍保留，可以在左侧点击恢复。",
+        "CANCELLED": "任务已取消。如需继续，可在左侧点击恢复重新入队。",
+    }
+    note = notes.get(status, "系统会根据任务状态自动显示当前可执行操作。")
+    return (
+        '<section class="stage-flow-content">'
+        f'<div class="stage-steps">{"".join(items)}</div>'
+        f'<div class="stage-note">{escape(note)}</div>'
+        "</section>"
     )
 
 

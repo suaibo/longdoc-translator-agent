@@ -83,8 +83,12 @@ footer { display: none !important; }
 .gradio-container label,
 .gradio-container legend,
 .gradio-container fieldset,
+.gradio-container strong,
 .gradio-container .block-label,
 .gradio-container .block-info,
+.gradio-container .label-wrap,
+.gradio-container .label-wrap span,
+.gradio-container span.svelte-g2oxp3,
 .gradio-container .wrap label span,
 .gradio-container .form label span {
   color: #243238 !important;
@@ -191,6 +195,15 @@ footer { display: none !important; }
 .gradio-container button.boundedheight svg {
   color: var(--ink) !important;
 }
+.gradio-container label.float {
+  background: #ffffff !important;
+  color: #243238 !important;
+  border-color: var(--line) !important;
+}
+.gradio-container label.float span,
+.gradio-container label.float svg {
+  color: #243238 !important;
+}
 .login-shell {
   max-width: 460px;
   margin: 8vh auto 0;
@@ -283,9 +296,65 @@ footer { display: none !important; }
 .job-updated { color: var(--muted); font-size: 12px; margin-top: 12px; }
 .job-risk, .job-error { margin-top: 12px; padding: 10px; border-left: 3px solid var(--amber); background: #fff8e8; }
 .job-error { border-left-color: var(--danger); background: #fff1f0; }
+.stage-flow {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+.stage-steps {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+.stage-step {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  color: #51616a;
+  font-size: 13px;
+  min-height: 54px;
+}
+.stage-step strong {
+  display: block;
+  color: var(--ink);
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.stage-step.done { background: #f2f7f6; border-color: #b7d5d1; }
+.stage-step.active {
+  background: #e8f4f2;
+  border-color: var(--teal);
+  color: #0b4f49;
+}
+.stage-step.blocked {
+  background: #fff8e8;
+  border-color: #e2b96e;
+}
+.stage-note {
+  margin-top: 12px;
+  color: #51616a;
+  font-size: 14px;
+}
+.stage-panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+.stage-panel h3 {
+  color: var(--ink) !important;
+  margin-top: 0 !important;
+}
+.detail-accordion {
+  margin-top: 12px;
+}
 @media (max-width: 600px) {
   .sidebar { min-width: 0 !important; padding-right: 0 !important; border-right: 0 !important; }
   .main-pane { padding-left: 0 !important; }
+  .stage-steps { grid-template-columns: 1fr 1fr; }
 }
 """
 
@@ -387,116 +456,203 @@ def create_gradio_app() -> gr.Blocks:
                     job_summary = gr.HTML(
                         "<p>请选择左侧任务。</p>", elem_classes=["job-overview"]
                     )
-                    with gr.Tabs():
-                        with gr.Tab("概览"):
-                            chunks = gr.Dataframe(
-                                headers=["序号", "章节", "类型", "状态", "估算 Token", "检查"],
-                                datatype=["number", "str", "str", "str", "number", "str"],
-                                interactive=False,
-                                elem_classes=["compact-table"],
+                    stage_flow = gr.HTML(
+                        "", visible=False, elem_classes=["stage-flow"]
+                    )
+
+                    with gr.Column(
+                        visible=True, elem_classes=["stage-panel"]
+                    ) as no_job_panel:
+                        gr.Markdown(
+                            "### 选择任务或创建新任务\n左侧是并发任务总览。选择任意任务后，右侧会只显示该任务当前阶段需要的操作。"
+                        )
+
+                    with gr.Column(
+                        visible=False, elem_classes=["stage-panel"]
+                    ) as progress_panel:
+                        gr.Markdown(
+                            "### 后台处理中\nWorker 会持续处理当前任务。你可以关闭页面，稍后重新登录查看进度和下载结果。"
+                        )
+                        chunks = gr.Dataframe(
+                            headers=["序号", "章节", "类型", "状态", "估算 Token", "检查"],
+                            datatype=["number", "str", "str", "str", "number", "str"],
+                            interactive=False,
+                            elem_classes=["compact-table"],
+                        )
+
+                    with gr.Column(
+                        visible=False, elem_classes=["stage-panel"]
+                    ) as terms_panel:
+                        gr.Markdown(
+                            "### 术语确认\n检查术语建议，必要时编辑“确认译名”，确认后进入预翻译和风格确认。"
+                        )
+                        terms = gr.Dataframe(
+                            headers=["原文术语", "建议译名", "确认译名", "备注", "已确认"],
+                            datatype=["str", "str", "str", "str", "bool"],
+                            type="array",
+                            interactive=True,
+                            elem_classes=["compact-table"],
+                        )
+                        confirm_terms_button = gr.Button(
+                            "确认术语并生成预翻译", variant="primary"
+                        )
+
+                    with gr.Column(
+                        visible=False, elem_classes=["stage-panel"]
+                    ) as style_panel:
+                        gr.Markdown(
+                            "### 预翻译与风格确认\n先查看样例译文，再填写或调整风格 Prompt。确认后正式进入全文翻译。"
+                        )
+                        style_prompt = gr.Textbox(label="风格 Prompt", lines=4)
+                        with gr.Row():
+                            retry_preview_button = gr.Button("重新预翻译")
+                            confirm_style_button = gr.Button(
+                                "确认风格并继续", variant="primary"
                             )
-                        with gr.Tab("术语"):
-                            terms = gr.Dataframe(
-                                headers=["原文术语", "建议译名", "确认译名", "备注", "已确认"],
-                                datatype=["str", "str", "str", "str", "bool"],
-                                type="array",
-                                interactive=True,
-                                elem_classes=["compact-table"],
+                        with gr.Row():
+                            preview_source = gr.Textbox(
+                                label="预翻译原文样例", lines=12, interactive=False
                             )
-                            confirm_terms_button = gr.Button(
-                                "确认术语并生成预翻译", variant="primary"
+                            preview_translation = gr.Textbox(
+                                label="预翻译结果", lines=12, interactive=False
                             )
-                        with gr.Tab("风格"):
-                            style_prompt = gr.Textbox(label="风格 Prompt", lines=4)
-                            with gr.Row():
-                                retry_preview_button = gr.Button("重新预翻译")
-                                confirm_style_button = gr.Button(
-                                    "确认风格并继续", variant="primary"
+
+                    with gr.Column(
+                        visible=False, elem_classes=["stage-panel"]
+                    ) as review_panel:
+                        gr.Markdown(
+                            "### 人工审核\n当前任务暂停在风险或章节确认点。处理后 Worker 会继续执行。"
+                        )
+                        reviews = gr.Dataframe(
+                            headers=["类型", "位置", "状态", "备注"],
+                            datatype=["str"] * 4,
+                            interactive=False,
+                            elem_classes=["compact-table"],
+                        )
+                        risks = gr.Dataframe(
+                            headers=[
+                                "级别",
+                                "问题",
+                                "位置",
+                                "说明",
+                                "原文片段",
+                                "系统处理",
+                                "建议操作",
+                            ],
+                            datatype=["str"] * 7,
+                            interactive=False,
+                            wrap=True,
+                            elem_classes=["compact-table"],
+                        )
+                        review_note = gr.Textbox(label="审核备注", lines=2)
+                        approve_review_button = gr.Button(
+                            "接受当前风险并继续", variant="primary"
+                        )
+
+                    with gr.Column(
+                        visible=False, elem_classes=["stage-panel"]
+                    ) as output_panel:
+                        gr.Markdown(
+                            "### 结果与交付\n任务完成后可以下载结果；如需微调译文，可编辑片段并重新生成输出。"
+                        )
+                        with gr.Row():
+                            bilingual_html = gr.File(label="双语 HTML", interactive=False)
+                            translated_html = gr.File(label="译文 HTML", interactive=False)
+                            package = gr.File(label="完整结果包", interactive=False)
+                        with gr.Row():
+                            bilingual = gr.File(label="双语 Markdown", interactive=False)
+                            translated = gr.File(label="译文 Markdown", interactive=False)
+                            report = gr.File(label="翻译报告", interactive=False)
+                            source = gr.File(label="原始文件", interactive=False)
+                        edit_chunk = gr.Dropdown(label="片段")
+                        with gr.Row():
+                            edit_source = gr.Textbox(
+                                label="原文", lines=14, interactive=False
+                            )
+                            edit_translation = gr.Textbox(label="当前译文", lines=14)
+                        edit_note = gr.Textbox(label="编辑备注", lines=2)
+                        with gr.Row():
+                            load_chunk_button = gr.Button("加载片段")
+                            save_translation_button = gr.Button(
+                                "保存译文", variant="primary"
+                            )
+                            regenerate_outputs_button = gr.Button("重新生成输出")
+                        versions = gr.Dataframe(
+                            headers=[
+                                "版本 ID",
+                                "版本号",
+                                "来源",
+                                "时间",
+                                "模型",
+                                "备注",
+                            ],
+                            datatype=["str", "number", "str", "str", "str", "str"],
+                            interactive=False,
+                            elem_classes=["compact-table"],
+                        )
+                        restore_version_id = gr.Textbox(label="要恢复的版本 ID")
+                        restore_version_button = gr.Button("恢复该版本")
+
+                    with gr.Accordion(
+                        "任务详情和高级信息",
+                        open=False,
+                        elem_classes=["detail-accordion"],
+                    ):
+                        with gr.Tabs():
+                            with gr.Tab("术语"):
+                                detail_terms = gr.Dataframe(
+                                    headers=["原文术语", "建议译名", "确认译名", "备注", "已确认"],
+                                    datatype=["str", "str", "str", "str", "bool"],
+                                    interactive=False,
+                                    elem_classes=["compact-table"],
                                 )
-                            with gr.Row():
-                                preview_source = gr.Textbox(
-                                    label="预翻译原文样例", lines=12, interactive=False
+                            with gr.Tab("分块"):
+                                detail_chunks = gr.Dataframe(
+                                    headers=["序号", "章节", "类型", "状态", "估算 Token", "检查"],
+                                    datatype=["number", "str", "str", "str", "number", "str"],
+                                    interactive=False,
+                                    elem_classes=["compact-table"],
                                 )
-                                preview_translation = gr.Textbox(
-                                    label="预翻译结果", lines=12, interactive=False
+                            with gr.Tab("风险"):
+                                detail_risks = gr.Dataframe(
+                                    headers=[
+                                        "级别",
+                                        "问题",
+                                        "位置",
+                                        "说明",
+                                        "原文片段",
+                                        "系统处理",
+                                        "建议操作",
+                                    ],
+                                    datatype=["str"] * 7,
+                                    interactive=False,
+                                    wrap=True,
+                                    elem_classes=["compact-table"],
                                 )
-                        with gr.Tab("风险"):
-                            risks = gr.Dataframe(
-                                headers=[
-                                    "级别",
-                                    "问题",
-                                    "位置",
-                                    "说明",
-                                    "原文片段",
-                                    "系统处理",
-                                    "建议操作",
-                                ],
-                                datatype=["str"] * 7,
-                                interactive=False,
-                                wrap=True,
-                                elem_classes=["compact-table"],
-                            )
-                        with gr.Tab("人工审核"):
-                            reviews = gr.Dataframe(
-                                headers=["类型", "位置", "状态", "备注"],
-                                datatype=["str"] * 4,
-                                interactive=False,
-                                elem_classes=["compact-table"],
-                            )
-                            review_note = gr.Textbox(label="审核备注", lines=2)
-                            approve_review_button = gr.Button(
-                                "接受当前风险并继续", variant="primary"
-                            )
-                        with gr.Tab("译文编辑"):
-                            edit_chunk = gr.Dropdown(label="片段")
-                            with gr.Row():
-                                edit_source = gr.Textbox(
-                                    label="原文", lines=14, interactive=False
+                            with gr.Tab("人工审核"):
+                                detail_reviews = gr.Dataframe(
+                                    headers=["类型", "位置", "状态", "备注"],
+                                    datatype=["str"] * 4,
+                                    interactive=False,
+                                    elem_classes=["compact-table"],
                                 )
-                                edit_translation = gr.Textbox(label="当前译文", lines=14)
-                            edit_note = gr.Textbox(label="编辑备注", lines=2)
-                            with gr.Row():
-                                load_chunk_button = gr.Button("加载片段")
-                                save_translation_button = gr.Button(
-                                    "保存译文", variant="primary"
+                            with gr.Tab("时间线"):
+                                events = gr.Dataframe(
+                                    headers=["时间", "阶段", "状态", "耗时", "说明"],
+                                    datatype=["str"] * 5,
+                                    interactive=False,
+                                    elem_classes=["compact-table"],
                                 )
-                                regenerate_outputs_button = gr.Button("重新生成输出")
-                            versions = gr.Dataframe(
-                                headers=[
-                                    "版本 ID",
-                                    "版本号",
-                                    "来源",
-                                    "时间",
-                                    "模型",
-                                    "备注",
-                                ],
-                                datatype=["str", "number", "str", "str", "str", "str"],
-                                interactive=False,
-                                elem_classes=["compact-table"],
-                            )
-                            restore_version_id = gr.Textbox(label="要恢复的版本 ID")
-                            restore_version_button = gr.Button("恢复该版本")
-                        with gr.Tab("时间线"):
-                            events = gr.Dataframe(
-                                headers=["时间", "阶段", "状态", "耗时", "说明"],
-                                datatype=["str"] * 5,
-                                interactive=False,
-                                elem_classes=["compact-table"],
-                            )
-                        with gr.Tab("输出"):
-                            gr.Markdown("任务完成后可直接下载；重新登录后仍会保留。")
-                            with gr.Row():
-                                bilingual_html = gr.File(label="双语 HTML", interactive=False)
-                                translated_html = gr.File(label="译文 HTML", interactive=False)
-                                package = gr.File(label="完整结果包", interactive=False)
-                            with gr.Row():
-                                bilingual = gr.File(label="双语 Markdown", interactive=False)
-                                translated = gr.File(label="译文 Markdown", interactive=False)
-                                report = gr.File(label="翻译报告", interactive=False)
-                                source = gr.File(label="原始文件", interactive=False)
 
         dashboard_outputs = [
             job_summary,
+            stage_flow,
+            no_job_panel,
+            progress_panel,
+            terms_panel,
+            style_panel,
+            review_panel,
+            output_panel,
             terms,
             chunks,
             risks,
@@ -516,6 +672,10 @@ def create_gradio_app() -> gr.Blocks:
             translated_html,
             package,
             source,
+            detail_terms,
+            detail_chunks,
+            detail_risks,
+            detail_reviews,
         ]
         auth_outputs = [
             auth_status,
